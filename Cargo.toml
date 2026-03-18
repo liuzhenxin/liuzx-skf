@@ -1,0 +1,23 @@
+[package]
+name = "skf-service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.21"
+tungstenite = "0.21"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1"
+libloading = "0.8"
+log = "0.4"
+env_logger = "0.11"
+base64 = "0.22.1"
+anyhow = "1.0.100"
+futures-util = "0.3.31"
+x509-parser = "0.15"
+warp = "0.3"
+smcrypto = "0.3"
+rand = "0.8"
+

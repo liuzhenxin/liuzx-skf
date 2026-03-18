@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>SKF API Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: hsl(230, 20%, 8%);
+            --bg-surface: hsla(230, 20%, 15%, 0.7);
+            --bg-card: hsla(230, 20%, 18%, 0.6);
+            --bg-input: hsla(230, 20%, 12%, 0.8);
+            
+            --text-primary: hsl(230, 20%, 95%);
+            --text-secondary: hsl(230, 15%, 70%);
+            --text-muted: hsl(230, 10%, 50%);
+            
+            --primary: hsl(217, 91%, 60%);
+            --primary-glow: hsla(217, 91%, 60%, 0.3);
+            --secondary: hsl(252, 62%, 66%);
+            
+            --success: hsl(142, 69%, 45%);
+            --error: hsl(346, 84%, 61%);
+            --warning: hsl(38, 92%, 50%);
+            
+            --border: hsla(230, 20%, 30%, 0.4);
+            --border-focus: hsla(217, 91%, 60%, 0.5);
+            
+            --glass-blur: blur(12px);
+            --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-base);
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(217, 91%, 60%, 0.05) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, hsla(252, 62%, 66%, 0.05) 0px, transparent 50%);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            line-height: 1.5;
+        }
+
+        /* Float Header */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+            margin-bottom: 24px;
+            background: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h1, h2, h3 {
+            margin: 0;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        h2 { font-size: 1.25rem; }
+        h3 { font-size: 1rem; color: var(--text-secondary); margin-bottom: 12px; }
+
+        .container {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 24px;
+            flex: 1;
+        }
+
+        /* Sidebar & Cards */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+            gap: 24px;
+            padding-bottom: 100px; /* Space for log */
+        }
+
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: var(--transition);
+        }
+
+        .card:hover {
+            border-color: var(--border-focus);
+            box-shadow: 0 0 20px var(--primary-glow);
+            transform: translateY(-2px);
+        }
+
+        /* Forms */
+        .control-group {
+            margin-bottom: 16px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: var(--transition);
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+
+        input[readonly] {
+            cursor: default;
+            background: transparent;
+            border-style: dashed;
+            color: var(--primary);
+            font-weight: 500;
+        }
+
+        /* Buttons */
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 16px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            gap: 8px;
+        }
+
+        button:hover {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px var(--primary-glow);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background: hsla(230, 20%, 30%, 0.5);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        button.danger {
+            background: var(--error);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(1);
+        }
+
+        /* Specialized components */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--error);
+            box-shadow: 0 0 10px var(--error);
+            margin-right: 8px;
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+            box-shadow: 0 0 10px var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .flex-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        /* Log Panel as a Persistent Footer Overlay */
+        #log-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 400px;
+            height: 300px;
+            background: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+            box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+            transition: var(--transition);
+        }
+
+        #log-header {
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--border);
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move;
+        }
+
+        #log-content {
+            padding: 12px;
+            overflow-y: auto;
+            flex: 1;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid hsla(230, 20%, 30%, 0.2);
+        }
+
+        .log-tx { color: var(--primary); font-weight: 600; }
+        .log-rx { color: var(--success); font-weight: 600; }
+        .log-err { color: var(--error); font-weight: 600; }
+        .log-sys { color: var(--warning); font-weight: 600; }
+
+        .json-preview {
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            opacity: 0.9;
+        }
+
+        /* Cert List */
+        #cert-list {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .cert-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 4px solid var(--primary);
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .cert-item.sign { border-left-color: var(--success); }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="flex-row">
+            <div id="status-dot" class="status-dot"></div>
+            <h1>SKF API Demo</h1>
+        </div>
+        <div class="flex-row">
+            <select id="select-lang" onchange="app.setLanguage(this.value)" style="width: auto;">
+                <option value="CN">中文</option>
+                <option value="EN">English</option>
+            </select>
+            <button onclick="app.connect()" id="btn-connect">Connect Service</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="card">
+                <h3 data-i18n="lbl_settings">Environment Settings</h3>
+                <div class="control-group">
+                    <label>WebSocket URL</label>
+                    <input type="text" id="input-ws-url" value="ws://127.0.0.1:9001">
+                </div>
+                <div class="control-group">
+                    <label data-i18n="lbl_current_provider">Current Provider</label>
+                    <input type="text" id="state-provider" readonly>
+                </div>
+                <div class="control-group">
+                    <label data-i18n="lbl_current_device">Current Device</label>
+                    <input type="text" id="state-device" readonly>
+                </div>
+                <div class="control-group">
+                    <label data-i18n="lbl_current_app">Current Application</label>
+                    <input type="text" id="state-app" readonly>
+                </div>
+                <div class="control-group">
+                    <label data-i18n="lbl_device_handle">Device Handle</label>
+                    <input type="text" id="state-handle" readonly>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 data-i18n="lbl_step1">1. Enumeration</h3>
+                <div class="control-group">
+                    <label data-i18n="lbl_provider">Provider List</label>
+                    <div class="flex-row">
+                        <select id="select-provider"></select>
+                        <button onclick="app.enumProvider()" class="secondary">Enum</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label data-i18n="lbl_device">Device List</label>
+                    <div class="flex-row">
+                        <select id="select-device" onchange="app.onDeviceSelect()"></select>
+                        <button onclick="app.enumDevice()" class="secondary">Enum</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 data-i18n="lbl_step2">2. Device Operations</h3>
+                <div class="control-group">
+                    <label data-i18n="lbl_app_list">Application List</label>
+                    <div class="flex-row">
+                        <select id="select-app" onchange="app.onAppSelect()"></select>
+                        <button onclick="app.enumApplication()" class="secondary" data-i18n="btn_enum_app">Enum Apps</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Generate Random</label>
+                    <div class="flex-row">
+                        <input type="number" id="input-random-len" value="16" style="width: 80px;">
+                        <button onclick="app.generateRandom()" style="flex: 1;">Generate</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Workspace -->
+        <div class="main-content">
+            <!-- Step 3: Digest -->
+            <div class="card">
+                <h3 data-i18n="lbl_step3">3. Digest (Hash)</h3>
+                <div class="control-group">
+                    <label data-i18n="lbl_digest_data">Data to Hash</label>
+                    <textarea id="input-digest-data" rows="2">Hello SKF</textarea>
+                </div>
+                <div class="control-group">
+                    <label data-i18n="lbl_digest_alg">Algorithm</label>
+                    <select id="select-digest-alg">
+                        <option value="SM3">SM3</option>
+                        <option value="SHA1">SHA1</option>
+                        <option value="SHA256">SHA256</option>
+                    </select>
+                </div>
+                <button onclick="app.digestData()" style="width: 100%;">Compute Digest</button>
+                <div class="control-group" style="margin-top: 15px;">
+                    <label>Result (Hex)</label>
+                    <input type="text" id="output-digest-hex" readonly>
+                </div>
+                <div class="control-group">
+                    <label>Result (Base64)</label>
+                    <input type="text" id="output-digest-b64" readonly>
+                </div>
+            </div>
+
+            <!-- Step 4: PIN -->
+            <div class="card">
+                <h3 data-i18n="lbl_step4">4. PIN Authentication</h3>
+                <div class="control-group">
+                    <label data-i18n="lbl_pin">User PIN</label>
+                    <input type="password" id="input-pin" value="12345678">
+                </div>
+                <button onclick="app.checkPIN()" class="secondary" style="width: 100%;">Verify PIN</button>
+            </div>
+
+            <!-- Step 5: Certificates -->
+            <div class="card">
+                <h3 data-i18n="lbl_step5">5. Certificates</h3>
+                <div class="control-group">
+                    <label>Filter</label>
+                    <select id="select-cert-filter">
+                        <option value="">All</option>
+                        <option value="Sign">Signature Only</option>
+                        <option value="Enc">Encryption Only</option>
+                    </select>
+                </div>
+                <button onclick="app.findCertificates()" style="width: 100%;">Find Certificates</button>
+                <div id="cert-list"></div>
+            </div>
+
+            <!-- Step 6: Containers -->
+            <div class="card">
+                <h3 data-i18n="lbl_step6">6. Container Operations</h3>
+                <div class="control-group">
+                    <label data-i18n="lbl_container">Container List</label>
+                    <div class="flex-row">
+                        <select id="select-container" onchange="document.getElementById('output-csr-container').value = this.value"></select>
+                        <button onclick="app.enumContainer()" class="secondary">Enum</button>
+                    </div>
+                </div>
+                <button onclick="app.deleteContainer()" class="danger" style="width: 100%;">Delete Selected Container</button>
+            </div>
+
+            <!-- Step 7: CSR -->
+            <div class="card">
+                <h3 data-i18n="lbl_step7">7. Create PKCS#10</h3>
+                <div class="control-group">
+                    <label data-i18n="lbl_selected_app">Selected Application</label>
+                    <input type="text" id="display-csr-app" readonly placeholder="Select from Step 2">
+                </div>
+                <div class="control-group">
+                    <label>Subject DN</label>
+                    <input type="text" id="input-csr-subject" value="CN=SKF Test,O=LCloud,C=CN">
+                </div>
+                <div class="flex-row control-group">
+                    <div style="flex: 1;">
+                        <label>Key Type</label>
+                        <select id="select-csr-keytype">
+                            <option value="ECC">ECC (SM2)</option>
+                            <option value="RSA">RSA</option>
+                        </select>
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Length</label>
+                        <input type="number" id="input-csr-keylen" value="256">
+                    </div>
+                </div>
+                <div class="flex-row" style="margin-bottom: 12px; align-items: center;">
+                    <label style="font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="chk-double-cert" style="width: auto;"> Double License
+                    </label>
+                </div>
+                <button onclick="app.createPKCS10()" style="width: 100%;">Generate CSR</button>
+                <div class="control-group" style="margin-top: 15px;">
+                    <label>CSR Content (PEM)</label>
+                    <textarea id="output-csr" rows="4" readonly></textarea>
+                </div>
+            </div>
+
+            <!-- Step 8: Import -->
+            <div class="card">
+                <h3 data-i18n="lbl_step8">8. Certificate Management</h3>
+                <div class="control-group">
+                    <label>Import Target Container (Name)</label>
+                    <input type="text" id="output-csr-container" placeholder="Result from CSR">
+                </div>
+                <div class="control-group">
+                    <label>Certificate Data (PEM)</label>
+                    <textarea id="input-import-cert" rows="3"></textarea>
+                </div>
+                <div class="control-group">
+                    <label>Enc Key Pair (for Double Cert - Base64)</label>
+                    <textarea id="input-import-key" rows="2"></textarea>
+                </div>
+                <div class="flex-row" style="margin-top: 10px;">
+                    <button onclick="app.issueAndImportCert()" style="flex: 1;">Issue & Auto Import</button>
+                    <button onclick="app.importCertificateManual()" class="secondary">Manual Import</button>
+                </div>
+                <div style="margin-top: 10px;">
+                    <button onclick="app.importKeyPairManual()" class="secondary" style="width: 100%;">Import Key Pair</button>
+                </div>
+            </div>
+            
+            <!-- Step 9: Sign -->
+            <div class="card">
+                <h3 data-i18n="lbl_step9">9. Digital Signature</h3>
+                <div class="control-group">
+                    <label>Select Certificate</label>
+                    <select id="select-certificate">
+                        <option value="">-- No Certificates --</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Data to Sign (Base64)</label>
+                    <input type="text" id="input-sign-data" value="SGVsbG8gU0tG">
+                </div>
+                <button onclick="app.signData()" style="width: 100%;">Sign with Selected Cert</button>
+                <div class="control-group" style="margin-top: 16px;">
+                    <label>Signature Result</label>
+                    <textarea id="output-signature" rows="2" readonly></textarea>
+                </div>
+            </div>
+
+            <!-- Step 10: USB Events -->
+            <div class="card">
+                <h3 data-i18n="lbl_step10">10. USB Events</h3>
+                <div class="control-group">
+                    <label>Status</label>
+                    <div id="event-listener-status" style="font-weight:600; color:var(--text-muted);">Stopped</div>
+                </div>
+                <button onclick="app.startEventListener()" id="btn-event-listener" style="width: 100%;">Start Listening</button>
+                <div id="event-log" style="margin-top:12px; font-family:'JetBrains Mono'; font-size:11px; max-height:100px; overflow-y:auto; color:var(--text-secondary);"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Overlay -->
+    <div id="log-panel">
+        <div id="log-header">
+            <span style="font-weight: 600; font-size: 0.8rem; letter-spacing: 0.05em;">SERVICE LOGS</span>
+            <button onclick="document.getElementById('log-content').innerHTML=''" 
+                    style="padding: 4px 10px; font-size: 0.7rem; background: rgba(255,255,255,0.1);" class="secondary">Clear Logs</button>
+        </div>
+        <div id="log-content"></div>
+    </div>
+
+    <!-- Load scripts -->
+    <script src="skf_api.js?v=3"></script>
+
+    <script>
+        const uiTranslations = {
+            'CN': {
+                'lbl_settings': '环境设置',
+                'lbl_ws_url': 'WebSocket 地址',
+                'lbl_current_provider': '当前提供商',
+                'lbl_current_device': '当前设备',
+                'lbl_current_app': '当前应用',
+                'lbl_step1': '1. 枚举资源',
+                'lbl_provider': '提供商列表',
+                'lbl_device': '设备列表',
+                'lbl_step2': '2. 设备操作',
+                'lbl_app_list': '应用列表',
+                'btn_enum_app': '枚举应用',
+                'lbl_step3': '3. 摘要计算 (Hash)',
+                'lbl_digest_data': '待哈希数据',
+                'lbl_digest_alg': '哈希算法',
+                'lbl_step4': '4. PIN 验证',
+                'lbl_pin': '用户 PIN 码',
+                'lbl_step5': '5. 证书浏览',
+                'lbl_step6': '6. 容器操作',
+                'lbl_container': '容器列表',
+                'lbl_step7': '7. 创建 PKCS#10',
+                'lbl_selected_app': '已选应用',
+                'lbl_step8': '8. 证书安装',
+                'lbl_step9': '9. 电子签名',
+                'lbl_step10': '10. 插拔事件侦听',
+                'btn_connect': '连接服务',
+                'btn_disconnect': '断开服务',
+                'msg_pin_success': 'PIN 码验证成功',
+                'msg_digest_success': '摘要计算成功',
+                'msg_no_certs': '暂无证书',
+                'opt_select_none': '-- 请选择 --',
+                'lbl_service_logs': '操作日志',
+                'btn_clear_logs': '清空日志'
+            },
+            'EN': {
+                'lbl_settings': 'Environment Settings',
+                'lbl_ws_url': 'WebSocket URL',
+                'lbl_current_provider': 'Current Provider',
+                'lbl_current_device': 'Current Device',
+                'lbl_current_app': 'Current Application',
+                'lbl_step1': '1. Enumeration',
+                'lbl_provider': 'Provider List',
+                'lbl_device': 'Device List',
+                'lbl_step2': '2. Device Operations',
+                'lbl_app_list': 'Application List',
+                'btn_enum_app': 'Enum Apps',
+                'lbl_step3': '3. Digest (Hash)',
+                'lbl_digest_data': 'Data to Hash',
+                'lbl_digest_alg': 'Algorithm',
+                'lbl_step4': '4. PIN Authentication',
+                'lbl_pin': 'User PIN',
+                'lbl_step5': '5. Certificates',
+                'lbl_step6': '6. Containers',
+                'lbl_container': 'Container List',
+                'lbl_step7': '7. Create PKCS#10',
+                'lbl_selected_app': 'Selected App',
+                'lbl_step8': '8. Cert Management',
+                'lbl_step9': '9. Digital Signature',
+                'lbl_step10': '10. USB Event Listener',
+                'btn_connect': 'Connect Service',
+                'btn_disconnect': 'Disconnect',
+                'msg_pin_success': 'PIN verified successfully',
+                'msg_digest_success': 'Digest computed',
+                'msg_no_certs': 'No certificates loaded',
+                'opt_select_none': '-- Select a cert --',
+                'lbl_service_logs': 'SERVICE LOGS',
+                'btn_clear_logs': 'Clear Logs'
+            }
+        };
+
+        const app = {
+            skf: null,
+            currentLang: 'CN', // Default
+            foundCerts: [], // Store certs from FindCertificates
+            eventListenerActive: false,
+
+            init: function () {
+                const urlInput = document.getElementById('input-ws-url');
+                const url = urlInput ? urlInput.value : 'ws://127.0.0.1:9001';
+                this.connect(url);
+                this.updateUILanguage('CN');
+            },
+
+            updateUILanguage: function (lang) {
+                this.currentLang = lang;
+                const t = uiTranslations[lang] || uiTranslations['EN'];
+
+                document.querySelectorAll('[data-i18n]').forEach(el => {
+                    const key = el.getAttribute('data-i18n');
+                    if (t[key]) {
+                        el.innerText = t[key];
+                    }
+                });
+
+                // Update status dot and button text
+                const isConnected = this.skf && this.skf.isConnected();
+                this.updateStatus(isConnected);
+            },
+
+            // Connection
+            connect: function (customUrl) {
+                const url = customUrl || document.getElementById('input-ws-url').value;
+                this.logSystem("Connecting to " + url + "...");
+
+                this.skf = new SKFClient(url);
+
+                // Event Bindings
+                this.skf.on('connect', () => {
+                    this.updateStatus(true);
+                    this.logSystem("Connected to service");
+                    this.updateUILanguage(this.currentLang);
+                });
+
+                this.skf.on('disconnect', () => {
+                    this.updateStatus(false);
+                    this.logSystem("Disconnected from service");
+                });
+
+                this.skf.on('error', (err) => {
+                    this.logError("Connection Error: " + err);
+                });
+
+                // Initiate
+                this.skf.connect().catch(e => {
+                    this.logError("Connect failed: " + e);
+                });
+            },
+
+            disconnect: function () {
+                if (this.skf) this.skf.disconnect();
+            },
+
+            updateStatus: function (connected) {
+                const dot = document.getElementById('status-dot');
+                const btnConnect = document.getElementById('btn-connect');
+                const t = uiTranslations[this.currentLang];
+
+                if (connected) {
+                    dot.classList.add('connected');
+                    btnConnect.innerText = t['btn_disconnect'] || "Disconnect";
+                    btnConnect.onclick = () => this.disconnect();
+                } else {
+                    dot.classList.remove('connected');
+                    btnConnect.innerText = t['btn_connect'] || "Connect Service";
+                    btnConnect.onclick = () => this.connect();
+
+                    // Reset state
+                    document.getElementById('state-provider').value = '';
+                    document.getElementById('state-device').value = '';
+                    document.getElementById('state-app').value = '';
+                }
+            },
+
+            // --- API Calls ---
+
+            async setLanguage(lang) {
+                try {
+                    // Update UI immediately
+                    this.updateUILanguage(lang);
+
+                    // Call backend if connected
+                    if (this.skf && this.skf.isConnected()) {
+                        this.logTX("SetLanguage", lang);
+                        await this.skf.setLanguage(lang);
+                        this.logRX("SetLanguage", "OK");
+                    }
+                } catch (e) { this.logError(e); }
+            },
+
+            async enumProvider() {
+                try {
+                    this.logTX("EnumProvider", "All");
+                    const providers = await this.skf.enumProvider("");
+                    this.logRX("EnumProvider", providers);
+
+                    const select = document.getElementById('select-provider');
+                    select.innerHTML = '';
+
+                    if (providers.length === 0) {
+                        select.add(new Option("-- No Providers --", ""));
+                    } else {
+                        providers.forEach(p => select.add(new Option(p, p)));
+                        select.selectedIndex = 0;
+                        document.getElementById('state-provider').value = select.value;
+                        // Auto-enum devices if provider found
+                        this.enumDevice();
+                    }
+                } catch (e) { this.logError(e); }
+            },
+
+            onProviderSelect() {
+                const val = document.getElementById('select-provider').value;
+                document.getElementById('state-provider').value = val;
+            },
+
+            onDeviceSelect() {
+                const val = document.getElementById('select-device').value;
+                document.getElementById('state-device').value = val;
+                // Clear app list when device changes
+                const selectApp = document.getElementById('select-app');
+                selectApp.innerHTML = '';
+                document.getElementById('state-app').value = '';
+                const displayApp = document.getElementById('display-csr-app');
+                if (displayApp) displayApp.value = '';
+            },
+
+            onAppSelect() {
+                const val = document.getElementById('select-app').value;
+                document.getElementById('state-app').value = val;
+                const displayApp = document.getElementById('display-csr-app');
+                if (displayApp) displayApp.value = val;
+            },
+
+            async enumDevice() {
+                const provider = document.getElementById('select-provider').value;
+                if (!provider || provider.startsWith("--")) return;
+
+                try {
+                    this.logTX("EnumDevice", provider);
+                    const devices = await this.skf.enumDevice(provider);
+                    this.logRX("EnumDevice", devices);
+
+                    const select = document.getElementById('select-device');
+                    select.innerHTML = '';
+
+                    if (devices.length === 0) {
+                        select.add(new Option("-- No Devices --", ""));
+                    } else {
+                        devices.forEach(d => select.add(new Option(d, d)));
+                        select.selectedIndex = 0;
+                        document.getElementById('state-device').value = select.value;
+                    }
+                } catch (e) { this.logError(e); }
+            },
+
+            async startEventListener(provider) {
+                if (this.eventListenerActive) return;
+                this.eventListenerActive = true;
+                this.eventProvider = provider;
+
+                try {
+                    const wsUrl = document.getElementById('input-ws-url').value;
+                    this.skfEvent = new SKFClient(wsUrl);
+                    await this.skfEvent.connect();
+                    this.logRX("SYS", "Background Event Listener connected for " + provider);
+
+                    // Start infinite loop
+                    this.eventLoop();
+                } catch (e) {
+                    this.logError("Event Listener failed to connect");
+                    this.eventListenerActive = false;
+                }
+            },
+
+            async eventLoop() {
+                while (this.eventListenerActive && this.skfEvent && this.skfEvent.isConnected()) {
+                    try {
+                        const res = await this.skfEvent.waitForDevEvent(this.eventProvider);
+                        const eventName = res.event === 1 ? "Inserted" : (res.event === 2 ? "Removed" : "Unknown");
+                        this.logRX("EventLoop", `Device: ${res.deviceName}, Event: ${res.event} (${eventName})`);
+
+                        // Alert the user
+                        let actionCN = res.event === 1 ? "插入" : (res.event === 2 ? "拔出" : "未知状态");
+                        alert(`USB Key Event!\n\nDevice: ${res.deviceName}\nAction: ${eventName} (${actionCN})\n\n(设备 ${res.deviceName} 已被${actionCN})`);
+
+                        // Auto-refresh enum
+                        if (res.event === 1) { // 1 = inserted
+                            await this.enumDevice();
+                        }
+                    } catch (e) {
+                        break;
+                    }
+                }
+                this.eventListenerActive = false;
+            },
+
+            async connectDev() {
+                const dev = document.getElementById('select-device').value;
+                if (!dev || dev.startsWith("--")) return;
+
+                try {
+                    document.getElementById('state-device').value = dev;
+                    this.logTX("ConnectDev", dev);
+                    const handle = await this.skf.connectDev(dev);
+                    this.logRX("ConnectDev", "Handle: " + handle);
+                    document.getElementById('state-handle').value = handle;
+                } catch (e) { this.logError(e); }
+            },
+
+            async disconnectDev() {
+                const handle = document.getElementById('state-handle').value;
+                if (!handle) return;
+
+                try {
+                    this.logTX("DisConnectDev", handle);
+                    await this.skf.disconnectDev(handle);
+                    this.logRX("DisConnectDev", "Success");
+                    document.getElementById('state-handle').value = '';
+                } catch (e) { this.logError(e); }
+            },
+
+            async generateRandom() {
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const len = parseInt(document.getElementById('input-random-len').value) || 16;
+
+                if (!provider || !device) {
+                    return alert("Please select provider and device first");
+                }
+
+                try {
+                    this.logTX("GenerateRandom", `Device: ${device}, Len: ${len}`);
+                    // Step 1: Connect to device to get handle
+                    const handle = await this.skf.connectDev(device);
+                    // Step 2: Generate random
+                    const rand = await this.skf.generateRandom(handle, len);
+                    // Step 3: Disconnect
+                    await this.skf.disconnectDev(handle);
+
+                    this.logRX("GenerateRandom", rand);
+                    alert("Random Data (Hex):\n" + rand);
+                } catch (e) { this.logError(e); }
+            },
+
+            async checkPIN() {
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value; 
+                const pin = document.getElementById('input-pin').value;
+
+                if (!provider || !device || !appName) {
+                    alert("Please select provider, device and application first");
+                    return;
+                }
+
+                try {
+                    this.logTX("CheckPIN", { provider, device, app: appName, pin: "***" });
+                    await this.skf.checkPIN(`${provider}/${device}/${appName}`, pin);
+                    this.logRX("CheckPIN", "Success");
+
+                    const t = uiTranslations[this.currentLang];
+                    alert(t['msg_pin_success'] || "PIN verified successfully");
+                } catch (e) { this.logError(e); }
+            },
+
+            async findCertificates() {
+                const filter = document.getElementById('select-cert-filter').value;
+
+                try {
+                    this.logTX("FindCertificates", filter || "All");
+                    const certs = await this.skf.findCertificates(filter);
+                    const fileMsg = SKFClient.translations[this.currentLang]['msg_found_certs'].replace('{0}', certs.length);
+                    this.logRX("FindCertificates", fileMsg);
+
+                    const listDiv = document.getElementById('cert-list');
+                    const selectCert = document.getElementById('select-certificate');
+                    listDiv.innerHTML = '';
+
+                    // Reset dropdown
+                    selectCert.innerHTML = '';
+                    const noneOpt = document.createElement('option');
+                    noneOpt.value = "";
+                    noneOpt.innerText = uiTranslations[this.currentLang]['opt_select_none'];
+                    selectCert.appendChild(noneOpt);
+
+                    if (certs.length === 0) {
+                        listDiv.innerHTML = `<div style="text-align:center; color:#666; padding:20px">${uiTranslations[this.currentLang]['msg_no_certs']}</div>`;
+                    } else {
+                        this.foundCerts = certs;
+                        certs.forEach((item, index) => {
+                            // Add to list UI
+                            const el = document.createElement('div');
+                            el.className = `cert-item ${item.type === 'Sign' ? 'sign' : 'enc'}`;
+                            el.innerHTML = `
+                                <div><strong>[${item.type}]</strong> ${item.key}</div>
+                                <div style="font-family:monospace; font-size:11px; margin-top:4px; color:#c0caf5; overflow-wrap:anywhere;">${item.value}</div>
+                            `;
+                            listDiv.appendChild(el);
+
+                            // Add to dropdown selector
+                            const opt = document.createElement('option');
+                            opt.value = index;
+                            // Extract common name or key as display text
+                            opt.innerText = `[${item.type}] ${item.value}`;
+                            selectCert.appendChild(opt);
+                        });
+                    }
+                } catch (e) { this.logError(e); }
+            },
+
+            async enumApplication() {
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                if (!provider || !device) {
+                    alert("Please select provider and device first");
+                    return;
+                }
+
+                try {
+                    this.logTX("EnumApplication", { provider, device });
+                    const apps = await this.skf.enumApplication(provider, device);
+                    this.logRX("EnumApplication", apps);
+
+                    const select = document.getElementById('select-app');
+                    select.innerHTML = '';
+
+                    if (apps.length === 0) {
+                        select.add(new Option("-- No Apps --", ""));
+                        document.getElementById('state-app').value = '';
+                    } else {
+                        apps.forEach(a => select.add(new Option(a, a)));
+                        select.selectedIndex = 0;
+                        this.onAppSelect();
+                    }
+                } catch (e) { this.logError(e); }
+            },
+
+            async enumContainer() {
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+
+                if (!provider || !device) {
+                    alert("Please select provider and device first");
+                    return;
+                }
+                if (!appName) {
+                    alert("Please select an application first");
+                    return;
+                }
+
+                try {
+                    this.logTX("EnumContainer", { provider, device, appName });
+                    const containers = await this.skf.enumContainer(provider, device, appName);
+                    this.logRX("EnumContainer", `${containers.length} containers found`);
+
+                    const select = document.getElementById('select-container');
+                    const hidden = document.getElementById('output-csr-container');
+                    select.innerHTML = '';
+
+                    if (containers.length === 0) {
+                        select.add(new Option('-- No Containers --', ''));
+                        hidden.value = '';
+                    } else {
+                        containers.forEach(c => {
+                            select.add(new Option(c, c));
+                        });
+                        select.selectedIndex = 0;
+                        hidden.value = select.value;
+                    }
+                } catch (e) { this.logError(e); }
+            },
+
+            async deleteContainer() {
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+                const sel = document.getElementById('select-container');
+                const containerName = sel.value;
+                let pin = document.getElementById('input-pin').value;
+
+                if (!provider || !device || !appName || !containerName) {
+                    return alert("Please select provider, device, application and container first");
+                }
+
+                if (!confirm(`Delete container '${containerName}'?`)) return;
+
+                try {
+                    this.logTX("DeleteContainer", { provider, device, appName, containerName });
+                    await this.skf.deleteContainer(provider, device, appName, containerName, pin);
+                    this.logRX("DeleteContainer", "Success");
+
+                    // Refresh containers
+                    await this.enumContainer();
+                    alert(`Container '${containerName}' deleted.`);
+                } catch (e) {
+                    this.logError(e);
+                }
+            },
+
+            async issueAndImportCert() {
+                const csrPem = document.getElementById('output-csr').value;
+                if (!csrPem) {
+                    alert("Please generate a CSR first.");
+                    return;
+                }
+
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+                const containerName = document.getElementById('output-csr-container').value;
+                const pin = document.getElementById('input-pin').value;
+
+                if (!provider || !device || !appName || !containerName) {
+                    alert("Please select provider, device, application and container first");
+                    return;
+                }
+
+                try {
+                    const doubleCert = document.getElementById('chk-double-cert').checked;
+                    this.logTX("IssueCertificate", doubleCert ? "Issuing double license..." : "Issuing certificate from CSR...");
+                    const result = await this.skf.issueCertificate(csrPem, doubleCert);
+                    this.logRX("IssueCertificate", result.double ? "Double license generated" : "Certificate generated");
+
+                    if (result.double && result.certificate2) {
+                        // Step 1: Import enc key pair first
+                        if (result.encPriKey) {
+                            this.logTX("ImportKeyPair", { container: containerName });
+                            await this.skf.importKeyPair(provider, device, appName, containerName, pin, result.alg || "SM2", result.encPriKey, result.sessKey || "");
+                            this.logRX("ImportKeyPair", "Success");
+                        }
+
+                        // Step 2: Import sign certificate
+                        this.logTX("ImportCertificate (Sign)", { container: containerName });
+                        await this.skf.importCertificate(provider, device, appName, containerName, pin, true, result.certificate);
+                        this.logRX("ImportCertificate (Sign)", "Success");
+
+                        // Step 3: Import enc certificate
+                        this.logTX("ImportCertificate (Enc)", { container: containerName });
+                        await this.skf.importCertificate(provider, device, appName, containerName, pin, false, result.certificate2);
+                        this.logRX("ImportCertificate (Enc)", "Success");
+
+                        alert("Double license issued and imported successfully!");
+                    } else {
+                        // Single cert
+                        this.logTX("ImportCertificate", { container: containerName });
+                        await this.skf.importCertificate(provider, device, appName, containerName, pin, true, result.certificate);
+                        this.logRX("ImportCertificate", "Success");
+                        alert("Certificate issued and imported successfully!");
+                    }
+                } catch (e) { this.logError(e); }
+            },
+
+            // Standalone Import Certificate
+            importCertificateManual: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+                const containerName = document.getElementById('output-csr-container').value;
+                const pin = document.getElementById('input-pin').value;
+                const certData = document.getElementById('input-import-cert').value.trim();
+
+                if (!provider || !device || !appName || !containerName || !certData) {
+                    return alert("Please fill in all import fields first.");
+                }
+
+                try {
+                    this.logTX(`ImportCertificate`, { container: containerName });
+                    await this.skf.importCertificate(provider, device, appName, containerName, pin, true, certData);
+                    this.logRX(`ImportCertificate`, 'Success');
+                    alert(`Certificate imported successfully!`);
+                } catch (e) { this.logError(e); }
+            },
+
+            // Standalone Import KeyPair
+            importKeyPairManual: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+                const containerName = document.getElementById('output-csr-container').value;
+                const pin = document.getElementById('input-pin').value;
+                const encKeyPair = document.getElementById('input-import-key').value.trim();
+
+                if (!provider || !device || !appName || !containerName || !encKeyPair) {
+                    return alert("Please fill in all import fields first.");
+                }
+
+                try {
+                    this.logTX('ImportKeyPair', { container: containerName });
+                    await this.skf.importKeyPair(provider, device, appName, containerName, pin, "SM2", encKeyPair, '');
+                    this.logRX('ImportKeyPair', 'Success');
+                    alert('Key pair imported successfully!');
+                } catch (e) { this.logError(e); }
+            },
+
+            // Toggle USB Event Listener (Section 8)
+            toggleEventListener: async function () {
+                if (this.uiEventActive) {
+                    this.uiEventActive = false;
+                    if (this.skfUIEvent) { this.skfUIEvent.disconnect(); this.skfUIEvent = null; }
+                    document.getElementById('btn-event-listener').textContent = 'Start Listening';
+                    document.getElementById('event-listener-status').textContent = 'Stopped';
+                    document.getElementById('event-listener-status').style.color = '#787c99';
+                    return;
+                }
+
+                const provider = document.getElementById('state-provider').value;
+                if (!provider) return this.logError('Please enumerate providers first');
+
+                try {
+                    const wsUrl = document.getElementById('input-ws-url').value;
+                    this.skfUIEvent = new SKFClient(wsUrl);
+                    await this.skfUIEvent.connect();
+                    this.uiEventActive = true;
+                    document.getElementById('btn-event-listener').textContent = 'Stop Listening';
+                    document.getElementById('event-listener-status').textContent = '🔄 Listening...';
+                    document.getElementById('event-listener-status').style.color = '#9ece6a';
+
+                    const eventLog = document.getElementById('event-log');
+                    eventLog.innerHTML = '<div style="color:#9ece6a">Listening for USB Key events...</div>';
+
+                    while (this.uiEventActive && this.skfUIEvent && this.skfUIEvent.isConnected()) {
+                        try {
+                            const ev = await this.skfUIEvent.waitForDevEvent(provider);
+                            const icon = ev.event === 1 ? '🔌' : '🔌';
+                            const action = ev.event === 1 ? 'Inserted' : 'Removed';
+                            const now = new Date().toLocaleTimeString();
+                            const entry = document.createElement('div');
+                            entry.style.color = ev.event === 1 ? '#9ece6a' : '#f7768e';
+                            entry.textContent = `[${now}] ${icon} ${action} - ${ev.deviceName}`;
+                            eventLog.appendChild(entry);
+                            eventLog.scrollTop = eventLog.scrollHeight;
+                            this.logRX('DevEvent', `${action}: ${ev.deviceName}`);
+                            if (ev.event === 1) this.enumDevice();
+                        } catch (e) { break; }
+                    }
+                    this.uiEventActive = false;
+                    document.getElementById('btn-event-listener').textContent = 'Start Listening';
+                    document.getElementById('event-listener-status').textContent = 'Stopped';
+                    document.getElementById('event-listener-status').style.color = '#787c99';
+                } catch (e) { this.logError('Event listener: ' + (e.message || e)); }
+            },
+
+            digestData: async function () {
+                if (!this.skf) return this.logError('Not connected');
+
+                const providerName = document.getElementById('state-provider').value;
+                const deviceName = document.getElementById('state-device').value;
+                if (!providerName || !deviceName) {
+                    return this.logError('Please connect a device first (step 2)');
+                }
+
+                const dataText = document.getElementById('input-digest-data').value;
+                if (!dataText) return this.logError('Please enter data to hash');
+
+                const alg = document.getElementById('select-digest-alg').value;
+
+                const encoder = new TextEncoder();
+                const dataBytes = encoder.encode(dataText);
+                const dataB64 = btoa(String.fromCharCode(...dataBytes));
+
+                this.logTX('Digest', { provider: providerName, device: deviceName, alg: alg, data: dataText });
+
+                try {
+                    const result = await this.skf.digest(providerName, deviceName, dataB64, alg);
+                    document.getElementById('output-digest-hex').value = result.hex;
+                    document.getElementById('output-digest-b64').value = result.base64;
+                    // Auto-fill Sign Data input with digest base64
+                    document.getElementById('input-sign-data').value = result.base64;
+                    const t = SKFClient.translations[this.currentLang];
+                    this.logRX('Digest', `${t['msg_digest_success']} (${result.algorithm}, ${result.length} bytes)`);
+                } catch (e) {
+                    const msg = e.message || JSON.stringify(e);
+                    this.logError(`Digest: ${msg}`);
+                }
+            },
+
+            signData: async function () {
+                if (!this.skf) return this.logError('Not connected');
+
+                const selectCert = document.getElementById('select-certificate');
+                const certIdx = parseInt(selectCert.value);
+                if (isNaN(certIdx) || !this.foundCerts[certIdx]) {
+                    return this.logError('Please select a certificate first');
+                }
+
+                const cert = this.foundCerts[certIdx];
+                const dataB64 = document.getElementById('input-sign-data').value;
+                const pin = document.getElementById('input-pin').value;
+
+                if (!dataB64) return this.logError('Please compute digest first (step 3)');
+                if (!pin) return this.logError('Please enter PIN');
+
+                this.logTX('SignData', { certKey: cert.key, digestBase64: dataB64 });
+
+                try {
+                    const sig = await this.skf.signData(cert.key, dataB64, pin);
+                    document.getElementById('output-signature').value = sig;
+                    const t = SKFClient.translations[this.currentLang];
+                    this.logRX('SignData', t['msg_sign_success']);
+                } catch (e) {
+                    const msg = e.message || JSON.stringify(e);
+                    this.logError(`SignData: ${msg}`);
+                }
+            },
+
+            createPKCS10: async function () {
+                if (!this.skf) return this.logError('Not connected');
+
+                const providerName = document.getElementById('state-provider').value;
+                const deviceName = document.getElementById('state-device').value;
+                if (!providerName || !deviceName) {
+                    return alert('Please connect a device first');
+                }
+
+                const appName = document.getElementById('select-app').value;
+                const pin = document.getElementById('input-pin').value;
+                const subject = document.getElementById('input-csr-subject').value;
+                const keyType = document.getElementById('select-csr-keytype').value;
+                const keyLength = parseInt(document.getElementById('input-csr-keylen').value);
+
+                if (!appName || !pin || !subject) {
+                    return alert('Please fill in all CSR fields first');
+                }
+
+                this.logTX('CreatePKCS10', { subject, keyType, keyLength });
+
+                try {
+                    const result = await this.skf.createPKCS10(providerName, deviceName, appName, pin, subject, keyType, keyLength);
+                    document.getElementById('output-csr-container').value = result.container;
+                    // Add to container select dropdown
+                    const sel = document.getElementById('select-container');
+                    const opt = new Option(result.container, result.container);
+                    sel.add(opt);
+                    sel.value = result.container;
+                    document.getElementById('output-csr').value = result.pem;
+                    this.logRX('CreatePKCS10', `Success (Container: ${result.container})`);
+                } catch (e) {
+                    this.logError(e);
+                }
+            },
+
+            // --- Logging ---
+            uiLog: function (type, data) {
+                const content = document.getElementById('log-content');
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+
+                let typeClass = 'log-sys';
+                if (type === 'TX') typeClass = 'log-tx';
+                if (type === 'RX') typeClass = 'log-rx';
+                if (type === 'ERR') typeClass = 'log-err';
+
+                let raw = "";
+                if (typeof data === 'string') raw = data;
+                else {
+                    raw = JSON.stringify(data, null, 2);
+                }
+
+                entry.innerHTML = `
+            <span class="${typeClass}">[${type}]</span>
+            <span class="json-preview">${this.escapeHtml(raw)}</span>
+            `;
+
+                content.appendChild(entry);
+                content.scrollTop = content.scrollHeight;
+            },
+
+            logSystem: function (msg) { this.uiLog('SYS', msg); },
+            logTX: function (method, msg) { this.uiLog('TX', `${method}: ${JSON.stringify(msg)}`); },
+            logRX: function (method, msg) { this.uiLog('RX', `${method}: ${JSON.stringify(msg)}`); },
+            logError: function (msg) {
+                if (typeof msg === 'object') {
+                    if (msg.message) msg = `[${msg.code || 'ERR'}] ${msg.message}`;
+                    else if (msg instanceof Error) msg = msg.message || msg.toString();
+                    else msg = JSON.stringify(msg);
+                }
+                this.uiLog('ERR', msg);
+            },
+
+            clearLog: function () {
+                document.getElementById('log-content').innerHTML = '';
+            },
+
+            escapeHtml: function (text) {
+                if (!text) return text;
+                return text
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+        };
+
+        // Start
+        app.init();
+    </script>
+</body>
+
+</html>

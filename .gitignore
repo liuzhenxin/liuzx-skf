@@ -1,0 +1,45 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+# Cargo.lock is usually kept for binary projects (services)
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# package-lock.json is usually kept for reproducible builds
+
+# Build Artifacts
+/dist/
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.env
+
+# Logs
+*.log
+app.log
+skf_service.log
+
+# Mac specific
+.AppleDouble
+.LSOverride
+
+# Project Specific
+test_rcgen/
+
+# Vendor Binaries (Optional but recommended for GitHub)
+# Un-comment these if you want to exclude vendor libraries from Git
+# native/**/*.dll
+# native/**/*.so
+# native/**/*.dylib
