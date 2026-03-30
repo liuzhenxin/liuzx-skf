@@ -38,6 +38,51 @@ cargo run
 
 服务将监听 `ws://127.0.0.1:9001` (WebSocket)，并在 `http://0.0.0.0:8000` 提供 HTTP API Demo。
 
+## Windows 32 位打包指南
+
+如果你的硬件安全模块（USB Key）厂商提供的动态库（DLL）是 **32 位**，你需要编译并发布 32 位版本的 `skf-service.exe` 才能正常加载该库。请在 Windows 操作系统中按以下步骤构建：
+
+### 1. 准备环境
+
+确保你已在 Windows 机器上安装 Rust 以及 C++ 构建工具：
+
+- 访问并安装 [rustup.rs](https://rustup.rs/) (如果没有安装)。
+- 下载 [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/downloads/)，在安装时勾选 **“使用 C++ 的桌面开发” (Desktop development with C++)**，包含 MSVC v143 和 Windows SDK。
+
+### 2. 添加并编译 32 位目标 (MSVC)
+
+打开 Windows 终端（如 PowerShell 或 CMD），执行以下命令添加目标架构并编译：
+
+```powershell
+# 1. 安装 32 位工具链
+rustup target add i686-pc-windows-msvc
+
+# 2. 编译 Release 版程序
+cargo build --target i686-pc-windows-msvc --release
+```
+
+### 3. 手动打包文件
+
+编译成功后，新建一个发布文件夹（如 `skf-service-windows-x86`），并将所需文件进行归档整理：
+
+1. 将编译好的服务主程序 `target\i686-pc-windows-msvc\release\skf-service.exe` 复制到发布文件夹中。
+2. 将项目根目录的代码配置与依赖 `config/` 和 `native/` 文件夹复制进去。
+3. （可选）如果你需要演示页面，一并复制 `api/` 文件夹。
+
+```text
+skf-service-windows-x86/
+├── skf-service.exe    # 刚刚编译出的 32 位主程序
+├── config/            # 配置目录
+│   └── skf.yaml       # 必须包含提供商的库路径映射
+├── native/            # DLL 库目录
+│   └── FishMan/       
+│       └── windows/
+│           └── KeyGDBApi.dll  # 这里放厂商的 32 位库
+└── api/               # 静态 API 演示目录
+```
+
+这套整理好的文件夹即可发送给其他使用了 32 位环境或 32 位 UKey DLL 的客户开箱即运行。
+
 ## WebSocket API
 
 服务使用 JSON-RPC 2.0 风格的消息。所有参数均按数组形式传递。

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/liuzhenxin/Office/Source/LiuZX/LCloud/PKI/liuzx-skf -maxdepth 2 -type f \\\\\\(-name Makefile -o -name build.rs -o -name .cargo -o -name *.toml \\\\\\))",
+      "Bash(find /Users/liuzhenxin/Office/Source/LiuZX/LCloud/PKI/liuzx-skf -maxdepth 2 -not -path */target/* -not -path */.git/* -not -path */node_modules/*)",
+      "Bash(SKF_NO_RESTART=1 ./tests/run_tests.sh 2>&1)",
+      "Bash(kill 12481)",
+      "Bash(./tests/run_tests.sh 2>&1)",
+      "Bash(tee /tmp/skf_test_results.txt)",
+      "Bash(python3:*)",
+      "Bash(chmod:*)"
+    ]
+  }
+}

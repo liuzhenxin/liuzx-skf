@@ -15,3 +15,7 @@ GM3000:
   windows: "%System32%\\ShuttleCsp11_3000GM.dll"
   linux: "native/3000GM/linux/libes_3000gm.so.1.0.0"
   macos: "native/3000GM/macos/x86_64/libes_3000gm.dylib"
+
+## 渔翁
+FISHMAN:
+  windows: "native\\FISHMAN\\windows\\KeyGDBApi.dll"

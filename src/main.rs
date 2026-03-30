@@ -1842,18 +1842,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let cont_name = if !container_name_param.is_empty() {
                 container_name_param.to_string()
             } else {
-                // Generate random container name (UUID-like)
-                let mut rand_bytes = [0u8; 16];
-                let ret = api.gen_random(h_dev, rand_bytes.as_mut_ptr(), 16);
+                // Generate random container name (UUID-like but alphanumeric only to avoid special char parsing issues on some UKeys)
+                let mut rand_bytes = [0u8; 8];
+                let ret = api.gen_random(h_dev, rand_bytes.as_mut_ptr(), 8);
                 if ret == SAR_OK {
-                    format!("{{{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
+                    format!("{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
                         rand_bytes[0], rand_bytes[1], rand_bytes[2], rand_bytes[3],
-                        rand_bytes[4], rand_bytes[5], rand_bytes[6], rand_bytes[7],
-                        rand_bytes[8], rand_bytes[9], rand_bytes[10], rand_bytes[11],
-                        rand_bytes[12], rand_bytes[13], rand_bytes[14], rand_bytes[15])
+                        rand_bytes[4], rand_bytes[5], rand_bytes[6], rand_bytes[7])
                 } else {
                     // Fallback: use timestamp
-                    format!("{{CSR-{}}}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis())
+                    format!("CSR{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() % 100000000)
                 }
             };
 

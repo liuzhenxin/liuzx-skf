@@ -13,25 +13,25 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-base: hsl(230, 20%, 8%);
-            --bg-surface: hsla(230, 20%, 15%, 0.7);
-            --bg-card: hsla(230, 20%, 18%, 0.6);
-            --bg-input: hsla(230, 20%, 12%, 0.8);
+            --bg-base: hsl(220, 33%, 98%);
+            --bg-surface: hsla(220, 33%, 100%, 0.8);
+            --bg-card: hsl(0, 0%, 100%);
+            --bg-input: hsl(220, 33%, 97%);
             
-            --text-primary: hsl(230, 20%, 95%);
-            --text-secondary: hsl(230, 15%, 70%);
-            --text-muted: hsl(230, 10%, 50%);
+            --text-primary: hsl(220, 40%, 15%);
+            --text-secondary: hsl(220, 15%, 40%);
+            --text-muted: hsl(220, 10%, 60%);
             
-            --primary: hsl(217, 91%, 60%);
-            --primary-glow: hsla(217, 91%, 60%, 0.3);
-            --secondary: hsl(252, 62%, 66%);
+            --primary: hsl(217, 91%, 55%);
+            --primary-glow: hsla(217, 91%, 60%, 0.15);
+            --secondary: hsl(220, 15%, 50%);
             
-            --success: hsl(142, 69%, 45%);
-            --error: hsl(346, 84%, 61%);
-            --warning: hsl(38, 92%, 50%);
+            --success: hsl(142, 69%, 40%);
+            --error: hsl(346, 84%, 55%);
+            --warning: hsl(38, 92%, 45%);
             
-            --border: hsla(230, 20%, 30%, 0.4);
-            --border-focus: hsla(217, 91%, 60%, 0.5);
+            --border: hsla(220, 20%, 85%, 0.8);
+            --border-focus: hsla(217, 91%, 60%, 0.4);
             
             --glass-blur: blur(12px);
             --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -41,8 +41,8 @@
             font-family: 'Inter', system-ui, -apple-system, sans-serif;
             background-color: var(--bg-base);
             background-image: 
-                radial-gradient(at 0% 0%, hsla(217, 91%, 60%, 0.05) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, hsla(252, 62%, 66%, 0.05) 0px, transparent 50%);
+                radial-gradient(at 0% 0%, hsla(217, 91%, 60%, 0.03) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, hsla(252, 62%, 66%, 0.03) 0px, transparent 50%);
             color: var(--text-primary);
             margin: 0;
             padding: 20px;
@@ -68,7 +68,7 @@
             -webkit-backdrop-filter: var(--glass-blur);
             border: 1px solid var(--border);
             border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
         }
 
         h1, h2, h3 {
@@ -109,11 +109,12 @@
             border-radius: 12px;
             padding: 20px;
             transition: var(--transition);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.02);
         }
 
         .card:hover {
             border-color: var(--border-focus);
-            box-shadow: 0 0 20px var(--primary-glow);
+            box-shadow: 0 8px 30px var(--primary-glow);
             transform: translateY(-2px);
         }
 
@@ -152,7 +153,7 @@
 
         input[readonly] {
             cursor: default;
-            background: transparent;
+            background: hsla(220, 33%, 95%, 0.5);
             border-style: dashed;
             color: var(--primary);
             font-weight: 500;
@@ -176,7 +177,7 @@
         }
 
         button:hover {
-            filter: brightness(1.1);
+            filter: brightness(1.05);
             transform: translateY(-1px);
             box-shadow: 0 4px 12px var(--primary-glow);
         }
@@ -186,7 +187,7 @@
         }
 
         button.secondary {
-            background: hsla(230, 20%, 30%, 0.5);
+            background: hsla(220, 20%, 90%, 0.5);
             color: var(--text-primary);
             border: 1px solid var(--border);
         }
@@ -244,13 +245,13 @@
             display: flex;
             flex-direction: column;
             z-index: 1000;
-            box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
             transition: var(--transition);
         }
 
         #log-header {
             padding: 10px 16px;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(0, 0, 0, 0.02);
             border-bottom: 1px solid var(--border);
             border-radius: 12px 12px 0 0;
             display: flex;
@@ -270,7 +271,7 @@
         .log-entry {
             margin-bottom: 8px;
             padding-bottom: 4px;
-            border-bottom: 1px solid hsla(230, 20%, 30%, 0.2);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.04);
         }
 
         .log-tx { color: var(--primary); font-weight: 600; }
@@ -294,7 +295,7 @@
         }
 
         .cert-item {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(0, 0, 0, 0.02);
             border-left: 4px solid var(--primary);
             padding: 10px;
             border-radius: 4px;
@@ -396,7 +397,6 @@
                     <label data-i18n="lbl_digest_alg">Algorithm</label>
                     <select id="select-digest-alg">
                         <option value="SM3">SM3</option>
-                        <option value="SHA1">SHA1</option>
                         <option value="SHA256">SHA256</option>
                     </select>
                 </div>
@@ -536,7 +536,7 @@
                     <label>Status</label>
                     <div id="event-listener-status" style="font-weight:600; color:var(--text-muted);">Stopped</div>
                 </div>
-                <button onclick="app.startEventListener()" id="btn-event-listener" style="width: 100%;">Start Listening</button>
+                <button onclick="app.toggleEventListener()" id="btn-event-listener" style="width: 100%;">Start Listening</button>
                 <div id="event-log" style="margin-top:12px; font-family:'JetBrains Mono'; font-size:11px; max-height:100px; overflow-y:auto; color:var(--text-secondary);"></div>
             </div>
         </div>
@@ -547,7 +547,7 @@
         <div id="log-header">
             <span style="font-weight: 600; font-size: 0.8rem; letter-spacing: 0.05em;">SERVICE LOGS</span>
             <button onclick="document.getElementById('log-content').innerHTML=''" 
-                    style="padding: 4px 10px; font-size: 0.7rem; background: rgba(255,255,255,0.1);" class="secondary">Clear Logs</button>
+                    style="padding: 4px 10px; font-size: 0.7rem; background: rgba(0,0,0,0.05);" class="secondary">Clear Logs</button>
         </div>
         <div id="log-content"></div>
     </div>
@@ -631,7 +631,7 @@
             skf: null,
             currentLang: 'CN', // Default
             foundCerts: [], // Store certs from FindCertificates
-            eventListenerActive: false,
+            uiEventActive: false,
 
             init: function () {
                 const urlInput = document.getElementById('input-ws-url');
@@ -792,47 +792,6 @@
                 } catch (e) { this.logError(e); }
             },
 
-            async startEventListener(provider) {
-                if (this.eventListenerActive) return;
-                this.eventListenerActive = true;
-                this.eventProvider = provider;
-
-                try {
-                    const wsUrl = document.getElementById('input-ws-url').value;
-                    this.skfEvent = new SKFClient(wsUrl);
-                    await this.skfEvent.connect();
-                    this.logRX("SYS", "Background Event Listener connected for " + provider);
-
-                    // Start infinite loop
-                    this.eventLoop();
-                } catch (e) {
-                    this.logError("Event Listener failed to connect");
-                    this.eventListenerActive = false;
-                }
-            },
-
-            async eventLoop() {
-                while (this.eventListenerActive && this.skfEvent && this.skfEvent.isConnected()) {
-                    try {
-                        const res = await this.skfEvent.waitForDevEvent(this.eventProvider);
-                        const eventName = res.event === 1 ? "Inserted" : (res.event === 2 ? "Removed" : "Unknown");
-                        this.logRX("EventLoop", `Device: ${res.deviceName}, Event: ${res.event} (${eventName})`);
-
-                        // Alert the user
-                        let actionCN = res.event === 1 ? "插入" : (res.event === 2 ? "拔出" : "未知状态");
-                        alert(`USB Key Event!\n\nDevice: ${res.deviceName}\nAction: ${eventName} (${actionCN})\n\n(设备 ${res.deviceName} 已被${actionCN})`);
-
-                        // Auto-refresh enum
-                        if (res.event === 1) { // 1 = inserted
-                            await this.enumDevice();
-                        }
-                    } catch (e) {
-                        break;
-                    }
-                }
-                this.eventListenerActive = false;
-            },
-
             async connectDev() {
                 const dev = document.getElementById('select-device').value;
                 if (!dev || dev.startsWith("--")) return;
@@ -932,7 +891,7 @@
                             el.className = `cert-item ${item.type === 'Sign' ? 'sign' : 'enc'}`;
                             el.innerHTML = `
                                 <div><strong>[${item.type}]</strong> ${item.key}</div>
-                                <div style="font-family:monospace; font-size:11px; margin-top:4px; color:#c0caf5; overflow-wrap:anywhere;">${item.value}</div>
+                                <div style="font-family:monospace; font-size:11px; margin-top:4px; color:var(--text-secondary); overflow-wrap:anywhere;">${item.value}</div>
                             `;
                             listDiv.appendChild(el);
 
@@ -1134,14 +1093,14 @@
                 } catch (e) { this.logError(e); }
             },
 
-            // Toggle USB Event Listener (Section 8)
+            // Toggle USB Event Listener (Section 10)
             toggleEventListener: async function () {
                 if (this.uiEventActive) {
                     this.uiEventActive = false;
                     if (this.skfUIEvent) { this.skfUIEvent.disconnect(); this.skfUIEvent = null; }
                     document.getElementById('btn-event-listener').textContent = 'Start Listening';
                     document.getElementById('event-listener-status').textContent = 'Stopped';
-                    document.getElementById('event-listener-status').style.color = '#787c99';
+                    document.getElementById('event-listener-status').style.color = 'var(--text-muted)';
                     return;
                 }
 
@@ -1155,20 +1114,19 @@
                     this.uiEventActive = true;
                     document.getElementById('btn-event-listener').textContent = 'Stop Listening';
                     document.getElementById('event-listener-status').textContent = '🔄 Listening...';
-                    document.getElementById('event-listener-status').style.color = '#9ece6a';
+                    document.getElementById('event-listener-status').style.color = 'var(--success)';
 
                     const eventLog = document.getElementById('event-log');
-                    eventLog.innerHTML = '<div style="color:#9ece6a">Listening for USB Key events...</div>';
+                    eventLog.innerHTML = '<div style="color:var(--success)">Listening for USB Key events...</div>';
 
                     while (this.uiEventActive && this.skfUIEvent && this.skfUIEvent.isConnected()) {
                         try {
                             const ev = await this.skfUIEvent.waitForDevEvent(provider);
-                            const icon = ev.event === 1 ? '🔌' : '🔌';
                             const action = ev.event === 1 ? 'Inserted' : 'Removed';
                             const now = new Date().toLocaleTimeString();
                             const entry = document.createElement('div');
-                            entry.style.color = ev.event === 1 ? '#9ece6a' : '#f7768e';
-                            entry.textContent = `[${now}] ${icon} ${action} - ${ev.deviceName}`;
+                            entry.style.color = ev.event === 1 ? 'var(--success)' : 'var(--error)';
+                            entry.textContent = `[${now}] 🔌 ${action} - ${ev.deviceName}`;
                             eventLog.appendChild(entry);
                             eventLog.scrollTop = eventLog.scrollHeight;
                             this.logRX('DevEvent', `${action}: ${ev.deviceName}`);
@@ -1178,7 +1136,7 @@
                     this.uiEventActive = false;
                     document.getElementById('btn-event-listener').textContent = 'Start Listening';
                     document.getElementById('event-listener-status').textContent = 'Stopped';
-                    document.getElementById('event-listener-status').style.color = '#787c99';
+                    document.getElementById('event-listener-status').style.color = 'var(--text-muted)';
                 } catch (e) { this.logError('Event listener: ' + (e.message || e)); }
             },
 
