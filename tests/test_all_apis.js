@@ -223,7 +223,50 @@ async function runTests() {
         check('Find/Sign Process / 查找与签名测试', false, e.message);
     }
 
-    console.log('\n[8. Cleanup / 环境及容器清理]');
+    console.log('\n[8. SM4-CBC Encryption & Decryption / SM4-CBC 加密解密测试]');
+    try {
+        // 需要一个容器来存储加密密钥对
+        if (singleContainer || dualContainer) {
+            const testContainer = singleContainer || dualContainer;
+            const certKey = `${provName}/${devName}/${appName}/${testContainer}`;
+
+            // 准备测试数据
+            const testData = Buffer.from('This is a test message for SM4-CBC encryption!');
+            const testDataBase64 = testData.toString('base64');
+
+            // 生成随机 IV (16 bytes for SM4)
+            const iv = Buffer.from(await skf.generateRandom(devHandle, 16), 'base64');
+            const ivBase64 = iv.toString('base64');
+
+            // 测试加密
+            const encryptResult = await skf.encryptData(certKey, testDataBase64, ivBase64, 1); // PKCS5 padding
+            check('EncryptData (SM4-CBC) / SM4-CBC 加密', encryptResult && encryptResult.encryptedData);
+
+            // 测试解密
+            if (encryptResult && encryptResult.encryptedData) {
+                const decryptResult = await skf.decryptData(certKey, encryptResult.encryptedData, ivBase64, 1);
+                check('DecryptData (SM4-CBC) / SM4-CBC 解密', decryptResult && decryptResult.data);
+
+                // 验证解密结果
+                if (decryptResult && decryptResult.data) {
+                    const decryptedData = Buffer.from(decryptResult.data, 'base64');
+                    const isValid = decryptedData.equals(testData);
+                    check('SM4-CBC Round-trip / SM4-CBC 加解密循环验证', isValid);
+                } else {
+                    check('SM4-CBC Round-trip / SM4-CBC 加解密循环验证', false, 'Decryption failed');
+                }
+            } else {
+                check('DecryptData (SM4-CBC) / SM4-CBC 解密', false, 'Encryption failed');
+                skip('SM4-CBC Round-trip / SM4-CBC 加解密循环验证', 'Encryption failed');
+            }
+        } else {
+            skip('SM4-CBC Tests / SM4-CBC 测试', 'No container available / 无可用容器');
+        }
+    } catch (e) {
+        check('SM4-CBC Tests / SM4-CBC 测试', false, e.message);
+    }
+
+    console.log('\n[9. Cleanup / 环境及容器清理]');
     try {
         if (singleContainer) {
             await skf.deleteContainer(provName, devName, appName, singleContainer);

@@ -44,6 +44,11 @@ pub type F_SKF_DeleteContainer = unsafe extern "system" fn(hApp: HAPPLICATION, s
 pub type F_SKF_ImportCertificate = unsafe extern "system" fn(hContainer: HCONTAINER, bSignFlag: BOOL, pbCert: *mut BYTE, ulCertLen: ULONG) -> ULONG;
 pub type F_SKF_ImportECCKeyPair = unsafe extern "system" fn(hContainer: HCONTAINER, pEnvelopedKeyBlob: *const ENVELOPEDKEYBLOB) -> ULONG;
 pub type F_SKF_ImportRSAKeyPair = unsafe extern "system" fn(hContainer: HCONTAINER, ulSymAlgId: ULONG, pbWrappedKey: *mut BYTE, ulWrappedKeyLen: ULONG, pbEncryptedData: *mut BYTE, ulEncryptedDataLen: ULONG) -> ULONG;
+
+// Symmetric Encryption/Decryption
+pub type F_SKF_EncryptData = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pbData: *mut BYTE, ulDataLen: ULONG, pBlockCipherParam: *mut BLOCKCIPHERPARAM, pbEncryptedData: *mut BYTE, pulEncryptedDataLen: *mut ULONG) -> ULONG;
+pub type F_SKF_DecryptData = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pbEncryptedData: *mut BYTE, ulEncryptedDataLen: ULONG, pBlockCipherParam: *mut BLOCKCIPHERPARAM, pbData: *mut BYTE, pulDataLen: *mut ULONG) -> ULONG;
+
 // Helper Wrapper
 pub struct SkfApi {
     lib: Arc<Library>,
@@ -289,6 +294,24 @@ impl SkfApi {
         unsafe {
             match self.get_func::<F_SKF_ImportRSAKeyPair>(b"SKF_ImportRSAKeyPair") {
                 Ok(f) => f(container_handle, sym_alg_id, wrapped_key, wrapped_key_len, encrypted_data, encrypted_data_len),
+                Err(_) => SAR_COULDNOTGETFUNCADDR,
+            }
+        }
+    }
+
+    pub fn encrypt_data(&self, container_handle: HCONTAINER, alg_id: ULONG, data: *mut BYTE, data_len: ULONG, block_cipher_param: *mut BLOCKCIPHERPARAM, encrypted_data: *mut BYTE, encrypted_data_len: *mut ULONG) -> ULONG {
+        unsafe {
+            match self.get_func::<F_SKF_EncryptData>(b"SKF_EncryptData") {
+                Ok(f) => f(container_handle, alg_id, data, data_len, block_cipher_param, encrypted_data, encrypted_data_len),
+                Err(_) => SAR_COULDNOTGETFUNCADDR,
+            }
+        }
+    }
+
+    pub fn decrypt_data(&self, container_handle: HCONTAINER, alg_id: ULONG, encrypted_data: *mut BYTE, encrypted_data_len: ULONG, block_cipher_param: *mut BLOCKCIPHERPARAM, data: *mut BYTE, data_len: *mut ULONG) -> ULONG {
+        unsafe {
+            match self.get_func::<F_SKF_DecryptData>(b"SKF_DecryptData") {
+                Ok(f) => f(container_handle, alg_id, encrypted_data, encrypted_data_len, block_cipher_param, data, data_len),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }

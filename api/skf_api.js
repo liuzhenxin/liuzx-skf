@@ -310,6 +310,30 @@ class SKFClient {
     async createPKCS10(providerName, deviceName, appName, subject, keyType = "SM2", keyLength = 256, containerName = "") {
         return this.call("CreatePKCS10", [providerName, deviceName, appName, subject, keyType, keyLength, containerName]);
     }
+
+    /**
+     * Encrypt data using the encryption certificate in a container.
+     * @param {string} certKey Certificate key path (provider/device/app/container[/serial])
+     * @param {string} dataBase64 Data to encrypt (base64 encoded)
+     * @param {string} ivBase64 Initialization vector (base64 encoded)
+     * @param {number} [paddingType=1] Padding type: 1=PKCS5
+     * @returns {Promise<{encryptedData:string}>} Base64-encoded encrypted data
+     */
+    async encryptData(certKey, dataBase64, ivBase64, paddingType = 1) {
+        return this.call("EncryptData", [certKey, dataBase64, ivBase64, paddingType]);
+    }
+
+    /**
+     * Decrypt data using the encryption certificate in a container.
+     * @param {string} certKey Certificate key path (provider/device/app/container[/serial])
+     * @param {string} encryptedDataBase64 Data to decrypt (base64 encoded)
+     * @param {string} ivBase64 Initialization vector (base64 encoded)
+     * @param {number} [paddingType=1] Padding type: 1=PKCS5
+     * @returns {Promise<{data:string}>} Base64-encoded decrypted data
+     */
+    async decryptData(certKey, encryptedDataBase64, ivBase64, paddingType = 1) {
+        return this.call("DecryptData", [certKey, encryptedDataBase64, ivBase64, paddingType]);
+    }
 }
 
 // Internationalization Support (API Messages Only)

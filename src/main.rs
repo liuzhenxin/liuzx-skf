@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
 use crate::skf::api::SkfApi;
-use crate::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB};
+use crate::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM};
 use base64::prelude::*;
 use x509_parser::prelude::*;
 
@@ -1314,7 +1314,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             RpcResponse::ok(serde_json::json!(sig_b64), id)
         },
          "ImportKeyPair" => {
-              // Params: [providerName, deviceName, appName, containerName, alg, encKeyPair, wrapKey?]
+              // Params: [providerName, deviceName, appName, containerName, alg, encKeyPair, wrapKey?, sm4Mode?]
               let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
               let provider = if prov_param.is_empty() || prov_param == "default" {
                   &ctx.config.default
@@ -1342,6 +1342,19 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                   None => return RpcResponse::err(-2, "Missing encKeyPair param".into(), id),
               };
               let wrap_key_str_opt = req.params.get(6).and_then(|v| v.as_str());
+              let sm4_mode_str = req.params.get(7).and_then(|v| v.as_str());
+              let sm4_alg_id = match sm4_mode_str {
+                  Some(mode) if mode.eq_ignore_ascii_case("CBC") => SGD_SM4_CBC,
+                  Some(mode) if mode.eq_ignore_ascii_case("ECB") => SGD_SM4_ECB,
+                  Some(_) => {
+                      let msg = match lang {
+                          Language::CN => format!("不支持的SM4模式: {}, 支持: ECB, CBC", sm4_mode_str.unwrap()),
+                          Language::EN => format!("Unsupported SM4 mode: {}, supported: ECB, CBC", sm4_mode_str.unwrap()),
+                      };
+                      return RpcResponse::err(-2, msg, id);
+                  },
+                  None => SGD_SM4_ECB, // 默认 ECB
+              };
 
               let is_ecc = alg_str.eq_ignore_ascii_case("SM2") || alg_str.eq_ignore_ascii_case("ECC");
 
@@ -1425,7 +1438,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                       }
                   };
                   let mut enc_key_bytes = enc_key_pair_bytes;
-                  api.import_rsa_key_pair(h_cont, SGD_SM4_ECB, wrap_key_bytes.as_mut_ptr(), wrap_key_bytes.len() as ULONG, enc_key_bytes.as_mut_ptr(), enc_key_bytes.len() as ULONG)
+                  api.import_rsa_key_pair(h_cont, sm4_alg_id, wrap_key_bytes.as_mut_ptr(), wrap_key_bytes.len() as ULONG, enc_key_bytes.as_mut_ptr(), enc_key_bytes.len() as ULONG)
               };
 
               api.close_container(h_cont);
@@ -1990,6 +2003,306 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 "container": cont_name,
                 "keyType": key_type,
                 "keyLength": key_length
+            }), id)
+        },
+        "EncryptData" => {
+            // Params: [certKey, dataBase64, ivBase64, paddingType]
+            let cert_key = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(k) => k,
+                None => return RpcResponse::err(-2, "Missing certKey param".into(), id),
+            };
+            let data_b64 = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing data param".into(), id),
+            };
+            let iv_b64 = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(i) => i,
+                None => return RpcResponse::err(-2, "Missing IV param".into(), id),
+            };
+            let padding_type = req.params.get(3).and_then(|v| v.as_u64()).unwrap_or(1) as ULONG;
+
+            // Parse certKey: provider/device/app/container[/serial]
+            let parts: Vec<&str> = cert_key.splitn(5, '/').collect();
+            if parts.len() < 4 {
+                return RpcResponse::err(-2, "Invalid certKey format, expected: provider/device/app/container[/serial]".into(), id);
+            }
+            let prov_part = parts[0];
+            let prov_name = if prov_part.is_empty() || prov_part == "default" {
+                &ctx.config.default
+            } else {
+                prov_part
+            };
+            let dev_name = parts[1];
+            let app_name = parts[2];
+            let cont_name = parts[3];
+
+            // Decode data and IV
+            let data_bytes = match BASE64_STANDARD.decode(data_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            };
+            let iv_bytes = match BASE64_STANDARD.decode(iv_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 IV: {}", e), id),
+            };
+
+            // Load API
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            // Connect device
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            // Open application
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
+            }
+
+            // PIN from cache
+            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
+            let pin_cached = {
+                let pins = ctx.pins.read().unwrap();
+                pins.get(&pin_key).cloned()
+            };
+
+            if let Some(pin_str) = pin_cached {
+                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
+                let mut retry: ULONG = 0;
+                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
+                if ret != SAR_OK {
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
+                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            } else {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
+            }
+
+            // Open container
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
+            if ret != SAR_OK {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
+            }
+
+            // Prepare BLOCKCIPHERPARAM for SM4-CBC
+            let mut block_param = BLOCKCIPHERPARAM {
+                IV: [0u8; 32],
+                IVLen: iv_bytes.len() as ULONG,
+                PaddingType: padding_type,
+                FeedBitLen: 0,
+            };
+            if iv_bytes.len() > 32 {
+                block_param.IV.copy_from_slice(&iv_bytes[..32]);
+            } else {
+                block_param.IV[..iv_bytes.len()].copy_from_slice(&iv_bytes);
+            }
+
+            // Prepare buffers for encryption
+            let data_len = data_bytes.len() as ULONG;
+            let max_encrypted_len = data_len + 16; // Padding overhead
+            let mut encrypted_data = vec![0u8; max_encrypted_len as usize];
+            let mut encrypted_data_len = max_encrypted_len;
+
+            let ret = api.encrypt_data(
+                h_cont,
+                SGD_SM4_CBC,
+                data_bytes.as_ptr() as *mut BYTE,
+                data_len,
+                &mut block_param,
+                encrypted_data.as_mut_ptr(),
+                &mut encrypted_data_len
+            );
+
+            // Cleanup
+            api.close_container(h_cont);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("EncryptData失败: 0x{:08X}", ret),
+                    Language::EN => format!("EncryptData failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            encrypted_data.truncate(encrypted_data_len as usize);
+            let encrypted_b64 = BASE64_STANDARD.encode(&encrypted_data);
+
+            RpcResponse::ok(serde_json::json!({
+                "encryptedData": encrypted_b64,
+                "algorithm": "SM4-CBC"
+            }), id)
+        },
+        "DecryptData" => {
+            // Params: [certKey, encryptedDataBase64, ivBase64, paddingType]
+            let cert_key = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(k) => k,
+                None => return RpcResponse::err(-2, "Missing certKey param".into(), id),
+            };
+            let encrypted_data_b64 = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing encryptedData param".into(), id),
+            };
+            let iv_b64 = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(i) => i,
+                None => return RpcResponse::err(-2, "Missing IV param".into(), id),
+            };
+            let padding_type = req.params.get(3).and_then(|v| v.as_u64()).unwrap_or(1) as ULONG;
+
+            // Parse certKey: provider/device/app/container[/serial]
+            let parts: Vec<&str> = cert_key.splitn(5, '/').collect();
+            if parts.len() < 4 {
+                return RpcResponse::err(-2, "Invalid certKey format, expected: provider/device/app/container[/serial]".into(), id);
+            }
+            let prov_part = parts[0];
+            let prov_name = if prov_part.is_empty() || prov_part == "default" {
+                &ctx.config.default
+            } else {
+                prov_part
+            };
+            let dev_name = parts[1];
+            let app_name = parts[2];
+            let cont_name = parts[3];
+
+            // Decode encrypted data and IV
+            let encrypted_data_bytes = match BASE64_STANDARD.decode(encrypted_data_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 encrypted data: {}", e), id),
+            };
+            let iv_bytes = match BASE64_STANDARD.decode(iv_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 IV: {}", e), id),
+            };
+
+            // Load API
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            // Connect device
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            // Open application
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
+            }
+
+            // PIN from cache
+            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
+            let pin_cached = {
+                let pins = ctx.pins.read().unwrap();
+                pins.get(&pin_key).cloned()
+            };
+
+            if let Some(pin_str) = pin_cached {
+                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
+                let mut retry: ULONG = 0;
+                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
+                if ret != SAR_OK {
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
+                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            } else {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
+            }
+
+            // Open container
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
+            if ret != SAR_OK {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
+            }
+
+            // Prepare BLOCKCIPHERPARAM for SM4-CBC
+            let mut block_param = BLOCKCIPHERPARAM {
+                IV: [0u8; 32],
+                IVLen: iv_bytes.len() as ULONG,
+                PaddingType: padding_type,
+                FeedBitLen: 0,
+            };
+            if iv_bytes.len() > 32 {
+                block_param.IV.copy_from_slice(&iv_bytes[..32]);
+            } else {
+                block_param.IV[..iv_bytes.len()].copy_from_slice(&iv_bytes);
+            }
+
+            // Prepare buffers for decryption
+            let encrypted_data_len = encrypted_data_bytes.len() as ULONG;
+            let max_decrypted_len = encrypted_data_len + 16;
+            let mut decrypted_data = vec![0u8; max_decrypted_len as usize];
+            let mut decrypted_data_len = max_decrypted_len;
+
+            let ret = api.decrypt_data(
+                h_cont,
+                SGD_SM4_CBC,
+                encrypted_data_bytes.as_ptr() as *mut BYTE,
+                encrypted_data_len,
+                &mut block_param,
+                decrypted_data.as_mut_ptr(),
+                &mut decrypted_data_len
+            );
+
+            // Cleanup
+            api.close_container(h_cont);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("DecryptData失败: 0x{:08X}", ret),
+                    Language::EN => format!("DecryptData failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            decrypted_data.truncate(decrypted_data_len as usize);
+            let decrypted_b64 = BASE64_STANDARD.encode(&decrypted_data);
+
+            RpcResponse::ok(serde_json::json!({
+                "data": decrypted_b64,
+                "algorithm": "SM4-CBC"
             }), id)
         },
         _ => RpcResponse::err(-3, format!("Method {} not found", req.method), id),
