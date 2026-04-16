@@ -65,6 +65,10 @@ All parameters are passed as arrays in the `params` field.
   - Params: `["ProviderAlias", "DeviceName", "AppName"]`
 - **`DeleteContainer`**: Delete a container in a specific application.
   - Params: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "PIN"]`
+- **`CheckPIN`**: Verify user PIN and cache it (subsequent operations won't require re-verification).
+  - Params: `["CertKeyPath", "PIN"]`
+- **`CreateContainer`**: Create a new container.
+  - Params: `["ProviderAlias", "DeviceName", "AppName", "ContainerName"]`
 - **`ConnectDev`**: Connect to a specific device.
   - Params: `["DeviceName"]`
   - Response: Device Handle (integer as string)
@@ -84,7 +88,15 @@ All parameters are passed as arrays in the `params` field.
 - **`ImportCertificate`**: Import a certificate into a container.
   - Params: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "PIN", IsSignCertBool, "CertData"]`
 - **`ImportKeyPair`**: Import an encryption key pair into a container.
-  - Params: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "PIN", "Alg", "EncKeyPairBase64", "WrapKeyBase64"]`
+  - Params: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "Alg", "EncKeyPairBase64", "WrapKeyBase64", "SM4Mode?"]`
+  - `Alg`: "SM2"/"ECC" or "RSA"
+  - `SM4Mode`: SM4 encryption mode for RSA key import ("ECB" or "CBC", default ECB)
+- **`EncryptData`**: Encrypt data using SM4-CBC algorithm.
+  - Params: `["CertKeyPath", "DataBase64", "IVBase64", "PaddingType", "SymKeyBase64?"]`
+  - `PaddingType`: 1=PKCS#7 padding (default), 0=no padding
+  - `SymKeyBase64`: Optional external symmetric key (16 bytes), uses container key if not provided
+- **`DecryptData`**: Decrypt data using SM4-CBC algorithm.
+  - Params: `["CertKeyPath", "EncryptedDataBase64", "IVBase64", "PaddingType", "SymKeyBase64?"]`
 - **`GenerateRandom`**: Generate random data using the device.
   - Params: `[DeviceHandle, Length]`
 

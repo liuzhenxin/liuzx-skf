@@ -108,6 +108,10 @@ skf-service-windows-x86/
   - 参数: `["ProviderAlias", "DeviceName", "AppName"]`
 - **`DeleteContainer`**: 删除指定容器。
   - 参数: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "PIN"]`
+- **`CheckPIN`**: 验证用户 PIN 码并缓存（后续操作无需重复验证）。
+  - 参数: `["CertKeyPath", "PIN"]`
+- **`CreateContainer`**: 创建新容器。
+  - 参数: `["ProviderAlias", "DeviceName", "AppName", "ContainerName"]`
 - **`ConnectDev`**: 连接到特定设备。
   - 参数: `["DeviceName"]`
   - 响应: 设备句柄（字符串格式的整数）
@@ -127,7 +131,15 @@ skf-service-windows-x86/
 - **`ImportCertificate`**: 向容器中导入证书。
   - 参数: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "PIN", IsSignCertBool, "CertData"]`
 - **`ImportKeyPair`**: 向容器中导入加密密钥对。
-  - 参数: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "PIN", "Alg", "EncKeyPairBase64", "WrapKeyBase64"]`
+  - 参数: `["ProviderAlias", "DeviceName", "AppName", "ContainerName", "Alg", "EncKeyPairBase64", "WrapKeyBase64", "SM4Mode?"]`
+  - `Alg`: "SM2"/"ECC" 或 "RSA"
+  - `SM4Mode`: RSA 密钥导入时的 SM4 加密模式 ("ECB" 或 "CBC"，默认 ECB)
+- **`EncryptData`**: 使用 SM4-CBC 算法加密数据。
+  - 参数: `["CertKeyPath", "DataBase64", "IVBase64", "PaddingType", "SymKeyBase64?"]`
+  - `PaddingType`: 1=PKCS#7 填充 (默认), 0=无填充
+  - `SymKeyBase64`: 可选的外部对称密钥 (16 字节)，不提供则使用容器内的密钥
+- **`DecryptData`**: 使用 SM4-CBC 算法解密数据。
+  - 参数: `["CertKeyPath", "EncryptedDataBase64", "IVBase64", "PaddingType", "SymKeyBase64?"]`
 - **`GenerateRandom`**: 使用设备生成随机数。
   - 参数: `[DeviceHandle, Length]`
 
