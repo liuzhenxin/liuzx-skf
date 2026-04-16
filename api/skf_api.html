@@ -539,6 +539,123 @@
                 <button onclick="app.toggleEventListener()" id="btn-event-listener" style="width: 100%;">Start Listening</button>
                 <div id="event-log" style="margin-top:12px; font-family:'JetBrains Mono'; font-size:11px; max-height:100px; overflow-y:auto; color:var(--text-secondary);"></div>
             </div>
+
+            <!-- Step 11: SM4-CBC Encryption -->
+            <div class="card">
+                <h3 data-i18n="lbl_step11">11. SM4-CBC Encryption</h3>
+                <div class="control-group">
+                    <label>Select Certificate (for Key)</label>
+                    <select id="select-enc-cert">
+                        <option value="">-- Select Enc Cert --</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>SM4 Key (Base64, 16 bytes)</label>
+                    <div class="flex-row">
+                        <input type="text" id="input-sm4-key" placeholder="Auto-generated or paste here">
+                        <button onclick="app.generateSM4Key()" class="secondary" style="width:auto; padding:10px 12px;">Gen</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>IV (Base64, 16 bytes)</label>
+                    <div class="flex-row">
+                        <input type="text" id="input-sm4-iv" placeholder="Auto-generated or paste here">
+                        <button onclick="app.generateSM4IV()" class="secondary" style="width:auto; padding:10px 12px;">Gen</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Plaintext</label>
+                    <textarea id="input-sm4-plaintext" rows="2">Hello SM4!</textarea>
+                </div>
+                <div class="flex-row" style="margin-bottom: 12px;">
+                    <button onclick="app.sm4Encrypt()" style="flex:1;">Encrypt</button>
+                    <button onclick="app.sm4Decrypt()" class="secondary" style="flex:1;">Decrypt</button>
+                </div>
+                <div class="control-group">
+                    <label>Ciphertext (Base64)</label>
+                    <textarea id="output-sm4-ciphertext" rows="2" readonly></textarea>
+                </div>
+            </div>
+
+            <!-- Step 12: Device Lock & APDU -->
+            <div class="card">
+                <h3 data-i18n="lbl_step12">12. Device Lock & APDU</h3>
+                <div class="control-group">
+                    <label>Lock Timeout (ms)</label>
+                    <input type="number" id="input-lock-timeout" value="5000">
+                </div>
+                <div class="flex-row" style="margin-bottom: 12px;">
+                    <button onclick="app.lockDevice()" style="flex:1;">Lock Device</button>
+                    <button onclick="app.unlockDevice()" class="secondary" style="flex:1;">Unlock</button>
+                </div>
+                <div class="control-group">
+                    <label>APDU Command (Hex)</label>
+                    <input type="text" id="input-apdu-cmd" value="0084000008" placeholder="e.g. GET CHALLENGE">
+                </div>
+                <button onclick="app.transmitAPDU()" style="width:100%;">Transmit APDU</button>
+                <div class="control-group" style="margin-top: 12px;">
+                    <label>Response (Hex)</label>
+                    <input type="text" id="output-apdu-response" readonly>
+                </div>
+            </div>
+
+            <!-- Step 13: Key Generation -->
+            <div class="card">
+                <h3 data-i18n="lbl_step13">13. Key Generation</h3>
+                <div class="control-group">
+                    <label>New Container Name</label>
+                    <input type="text" id="input-new-container" placeholder="Enter container name">
+                </div>
+                <div class="flex-row control-group">
+                    <div style="flex:1;">
+                        <label>Key Type</label>
+                        <select id="select-gen-keytype">
+                            <option value="ECC">ECC (SM2)</option>
+                            <option value="RSA">RSA</option>
+                        </select>
+                    </div>
+                    <div style="flex:1;">
+                        <label>RSA Bits</label>
+                        <input type="number" id="input-rsa-bits" value="2048">
+                    </div>
+                </div>
+                <button onclick="app.createContainerAndGenKey()" style="width:100%;">Create Container & Generate Key</button>
+                <div class="control-group" style="margin-top: 12px;">
+                    <label>Public Key (Base64)</label>
+                    <textarea id="output-pubkey" rows="2" readonly></textarea>
+                </div>
+            </div>
+
+            <!-- Step 14: Step-by-Step Hash -->
+            <div class="card">
+                <h3 data-i18n="lbl_step14">14. Step-by-Step Hash</h3>
+                <div class="control-group">
+                    <label>Algorithm</label>
+                    <select id="select-stephash-alg">
+                        <option value="1">SM3 (0x0001)</option>
+                        <option value="2">SHA1 (0x0002)</option>
+                        <option value="4">SHA256 (0x0004)</option>
+                    </select>
+                </div>
+                <button onclick="app.stepHashInit()" class="secondary" style="width:100%;">Init Hash</button>
+                <div class="control-group" style="margin-top: 12px;">
+                    <label>Chunk Data</label>
+                    <input type="text" id="input-hash-chunk" value="Hello">
+                </div>
+                <button onclick="app.stepHashUpdate()" class="secondary" style="width:100%;">Update Hash</button>
+                <div class="flex-row" style="margin-top: 12px;">
+                    <button onclick="app.stepHashFinal()" style="flex:1;">Finalize Hash</button>
+                    <button onclick="app.stepHashClose()" class="danger" style="flex:1;">Close Handle</button>
+                </div>
+                <div class="control-group" style="margin-top: 12px;">
+                    <label>Hash Result (Base64)</label>
+                    <input type="text" id="output-stephash-result" readonly>
+                </div>
+                <div class="control-group">
+                    <label>Hash Handle</label>
+                    <input type="text" id="state-hash-handle" readonly>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -582,6 +699,10 @@
                 'lbl_step8': '8. 证书安装',
                 'lbl_step9': '9. 电子签名',
                 'lbl_step10': '10. 插拔事件侦听',
+                'lbl_step11': '11. SM4 对称加密',
+                'lbl_step12': '12. 设备锁定与 APDU',
+                'lbl_step13': '13. 密钥生成',
+                'lbl_step14': '14. 分步哈希',
                 'btn_connect': '连接服务',
                 'btn_disconnect': '断开服务',
                 'msg_pin_success': 'PIN 码验证成功',
@@ -616,6 +737,10 @@
                 'lbl_step8': '8. Cert Management',
                 'lbl_step9': '9. Digital Signature',
                 'lbl_step10': '10. USB Event Listener',
+                'lbl_step11': '11. SM4-CBC Encryption',
+                'lbl_step12': '12. Device Lock & APDU',
+                'lbl_step13': '13. Key Generation',
+                'lbl_step14': '14. Step-by-Step Hash',
                 'btn_connect': 'Connect Service',
                 'btn_disconnect': 'Disconnect',
                 'msg_pin_success': 'PIN verified successfully',
@@ -1237,6 +1362,280 @@
                 } catch (e) {
                     this.logError(e);
                 }
+            },
+
+            // --- SM4-CBC Encryption ---
+            generateSM4Key: async function () {
+                const handle = document.getElementById('state-handle').value;
+                if (!handle) {
+                    return this.logError('Please connect device first');
+                }
+                try {
+                    const keyB64 = await this.skf.generateRandom(handle, 16);
+                    document.getElementById('input-sm4-key').value = keyB64;
+                    this.logRX('GenerateSM4Key', keyB64);
+                } catch (e) { this.logError(e); }
+            },
+
+            generateSM4IV: async function () {
+                const handle = document.getElementById('state-handle').value;
+                if (!handle) {
+                    return this.logError('Please connect device first');
+                }
+                try {
+                    const ivB64 = await this.skf.generateRandom(handle, 16);
+                    document.getElementById('input-sm4-iv').value = ivB64;
+                    this.logRX('GenerateSM4IV', ivB64);
+                } catch (e) { this.logError(e); }
+            },
+
+            sm4Encrypt: async function () {
+                if (!this.skf) return this.logError('Not connected');
+
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+                const containerSelect = document.getElementById('select-container');
+                const containerName = containerSelect.value;
+                const pin = document.getElementById('input-pin').value;
+
+                if (!provider || !device || !appName || !containerName) {
+                    return this.logError('Please select provider, device, app and container');
+                }
+
+                const sm4Key = document.getElementById('input-sm4-key').value;
+                const iv = document.getElementById('input-sm4-iv').value;
+                const plaintext = document.getElementById('input-sm4-plaintext').value;
+
+                if (!sm4Key || !iv) {
+                    return this.logError('Please generate SM4 key and IV first');
+                }
+
+                // Convert plaintext to base64
+                const encoder = new TextEncoder();
+                const dataBytes = encoder.encode(plaintext);
+                const dataB64 = btoa(String.fromCharCode(...dataBytes));
+
+                const certKey = `${provider}/${device}/${appName}/${containerName}`;
+
+                this.logTX('EncryptData (SM4-CBC)', { certKey, iv, dataLen: dataBytes.length });
+
+                try {
+                    const result = await this.skf.encryptData(certKey, dataB64, iv, 1, sm4Key);
+                    document.getElementById('output-sm4-ciphertext').value = result.encryptedData;
+                    this.logRX('EncryptData', `Success (${result.encryptedData.length} chars)`);
+                } catch (e) { this.logError(e); }
+            },
+
+            sm4Decrypt: async function () {
+                if (!this.skf) return this.logError('Not connected');
+
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+                const containerSelect = document.getElementById('select-container');
+                const containerName = containerSelect.value;
+
+                if (!provider || !device || !appName || !containerName) {
+                    return this.logError('Please select provider, device, app and container');
+                }
+
+                const sm4Key = document.getElementById('input-sm4-key').value;
+                const iv = document.getElementById('input-sm4-iv').value;
+                const ciphertext = document.getElementById('output-sm4-ciphertext').value;
+
+                if (!sm4Key || !iv || !ciphertext) {
+                    return this.logError('Please encrypt data first');
+                }
+
+                const certKey = `${provider}/${device}/${appName}/${containerName}`;
+
+                this.logTX('DecryptData (SM4-CBC)', { certKey, iv });
+
+                try {
+                    const result = await this.skf.decryptData(certKey, ciphertext, iv, 1, sm4Key);
+                    // Convert base64 to text
+                    const decoded = atob(result.data);
+                    document.getElementById('input-sm4-plaintext').value = decoded;
+                    this.logRX('DecryptData', `Success: "${decoded}"`);
+                } catch (e) { this.logError(e); }
+            },
+
+            // --- Device Lock & APDU ---
+            lockDevice: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const timeout = parseInt(document.getElementById('input-lock-timeout').value) || 5000;
+
+                if (!provider || !device) {
+                    return this.logError('Please select provider and device');
+                }
+
+                this.logTX('LockDev', { provider, device, timeout });
+                try {
+                    await this.skf.lockDev(provider, device, timeout);
+                    this.logRX('LockDev', 'Device locked');
+                } catch (e) { this.logError(e); }
+            },
+
+            unlockDevice: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+
+                if (!provider || !device) {
+                    return this.logError('Please select provider and device');
+                }
+
+                this.logTX('UnlockDev', { provider, device });
+                try {
+                    await this.skf.unlockDev(provider, device);
+                    this.logRX('UnlockDev', 'Device unlocked');
+                } catch (e) { this.logError(e); }
+            },
+
+            transmitAPDU: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const apduHex = document.getElementById('input-apdu-cmd').value.trim();
+
+                if (!provider || !device) {
+                    return this.logError('Please select provider and device');
+                }
+                if (!apduHex) {
+                    return this.logError('Please enter APDU command');
+                }
+
+                // Convert hex to base64
+                const apduBytes = new Uint8Array(apduHex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+                const apduB64 = btoa(String.fromCharCode(...apduBytes));
+
+                this.logTX('Transmit', { apduHex });
+                try {
+                    const respB64 = await this.skf.transmit(provider, device, apduB64);
+                    // Convert base64 to hex
+                    const respBytes = atob(respB64).split('').map(c => c.charCodeAt(0));
+                    const respHex = respBytes.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+                    document.getElementById('output-apdu-response').value = respHex;
+                    this.logRX('Transmit', respHex);
+                } catch (e) { this.logError(e); }
+            },
+
+            // --- Key Generation ---
+            createContainerAndGenKey: async function () {
+                if (!this.skf) return this.logError('Not connected');
+
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const appName = document.getElementById('select-app').value;
+                const containerName = document.getElementById('input-new-container').value;
+                const keyType = document.getElementById('select-gen-keytype').value;
+                const rsaBits = parseInt(document.getElementById('input-rsa-bits').value) || 2048;
+
+                if (!provider || !device || !appName) {
+                    return this.logError('Please select provider, device and app');
+                }
+                if (!containerName) {
+                    return this.logError('Please enter container name');
+                }
+
+                try {
+                    // Step 1: Create container
+                    this.logTX('CreateContainer', { containerName });
+                    await this.skf.createContainer(provider, device, appName, containerName);
+                    this.logRX('CreateContainer', 'Success');
+
+                    // Step 2: Generate key pair
+                    let result;
+                    if (keyType === 'ECC') {
+                        this.logTX('GenECCKeyPair', { containerName });
+                        result = await this.skf.genECCKeyPair(provider, device, appName, containerName);
+                    } else {
+                        this.logTX('GenRSAKeyPair', { containerName, bits: rsaBits });
+                        result = await this.skf.genRSAKeyPair(provider, device, appName, containerName, rsaBits);
+                    }
+
+                    document.getElementById('output-pubkey').value = result.publicKeyBase64;
+                    this.logRX('GenKeyPair', `Success (${result.bitLen} bits)`);
+
+                    // Refresh container list
+                    await this.enumContainer();
+                } catch (e) { this.logError(e); }
+            },
+
+            // --- Step-by-Step Hash ---
+            stepHashHandle: null,
+
+            stepHashInit: async function () {
+                if (!this.skf) return this.logError('Not connected');
+
+                const provider = document.getElementById('state-provider').value;
+                const device = document.getElementById('state-device').value;
+                const algId = parseInt(document.getElementById('select-stephash-alg').value);
+
+                if (!provider || !device) {
+                    return this.logError('Please select provider and device');
+                }
+
+                this.logTX('DigestInit', { provider, device, algId });
+                try {
+                    const result = await this.skf.digestInit(provider, device, algId);
+                    this.stepHashHandle = result.handle;
+                    document.getElementById('state-hash-handle').value = result.handle;
+                    document.getElementById('output-stephash-result').value = '';
+                    this.logRX('DigestInit', `Handle: ${result.handle}`);
+                } catch (e) { this.logError(e); }
+            },
+
+            stepHashUpdate: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                if (!this.stepHashHandle) {
+                    return this.logError('Please init hash first');
+                }
+
+                const chunkText = document.getElementById('input-hash-chunk').value;
+                const encoder = new TextEncoder();
+                const chunkBytes = encoder.encode(chunkText);
+                const chunkB64 = btoa(String.fromCharCode(...chunkBytes));
+
+                this.logTX('DigestUpdate', { chunk: chunkText });
+                try {
+                    await this.skf.digestUpdate(this.stepHashHandle, chunkB64);
+                    this.logRX('DigestUpdate', 'Success');
+                } catch (e) { this.logError(e); }
+            },
+
+            stepHashFinal: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                if (!this.stepHashHandle) {
+                    return this.logError('Please init hash first');
+                }
+
+                this.logTX('DigestFinal', {});
+                try {
+                    const hashB64 = await this.skf.digestFinal(this.stepHashHandle);
+                    document.getElementById('output-stephash-result').value = hashB64;
+                    this.logRX('DigestFinal', hashB64);
+                    this.stepHashHandle = null;
+                    document.getElementById('state-hash-handle').value = '';
+                } catch (e) { this.logError(e); }
+            },
+
+            stepHashClose: async function () {
+                if (!this.skf) return this.logError('Not connected');
+                if (!this.stepHashHandle) {
+                    return this.logError('No hash handle to close');
+                }
+
+                this.logTX('CloseHash', {});
+                try {
+                    await this.skf.closeHash(this.stepHashHandle);
+                    this.logRX('CloseHash', 'Success');
+                    this.stepHashHandle = null;
+                    document.getElementById('state-hash-handle').value = '';
+                } catch (e) { this.logError(e); }
             },
 
             // --- Logging ---

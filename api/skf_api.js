@@ -319,8 +319,11 @@ class SKFClient {
      * @param {number} [paddingType=1] Padding type: 1=PKCS5
      * @returns {Promise<{encryptedData:string}>} Base64-encoded encrypted data
      */
-    async encryptData(certKey, dataBase64, ivBase64, paddingType = 1) {
-        return this.call("EncryptData", [certKey, dataBase64, ivBase64, paddingType]);
+    async encryptData(certKey, dataBase64, ivBase64, paddingType = 1, symKeyBase64 = null) {
+        const params = symKeyBase64 
+            ? [certKey, dataBase64, ivBase64, paddingType, symKeyBase64]
+            : [certKey, dataBase64, ivBase64, paddingType];
+        return this.call("EncryptData", params);
     }
 
     /**
@@ -329,10 +332,211 @@ class SKFClient {
      * @param {string} encryptedDataBase64 Data to decrypt (base64 encoded)
      * @param {string} ivBase64 Initialization vector (base64 encoded)
      * @param {number} [paddingType=1] Padding type: 1=PKCS5
+     * @param {string} [symKeyBase64=null] Optional SM4 symmetric key (16 bytes, base64)
      * @returns {Promise<{data:string}>} Base64-encoded decrypted data
      */
-    async decryptData(certKey, encryptedDataBase64, ivBase64, paddingType = 1) {
-        return this.call("DecryptData", [certKey, encryptedDataBase64, ivBase64, paddingType]);
+    async decryptData(certKey, encryptedDataBase64, ivBase64, paddingType = 1, symKeyBase64 = null) {
+        const params = symKeyBase64 
+            ? [certKey, encryptedDataBase64, ivBase64, paddingType, symKeyBase64]
+            : [certKey, encryptedDataBase64, ivBase64, paddingType];
+        return this.call("DecryptData", params);
+    }
+
+    /**
+     * Get device information (manufacturer, serial, algorithm capabilities, etc.)
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @returns {Promise<Object>} Device info object
+     */
+    async getDevInfo(providerName, deviceName) {
+        return this.call("GetDevInfo", [providerName, deviceName]);
+    }
+
+    /**
+     * Get device state (present/absent/busy).
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @returns {Promise<{state:number, stateStr:string}>} Device state
+     */
+    async getDevState(providerName, deviceName) {
+        return this.call("GetDevState", [providerName, deviceName]);
+    }
+
+    /**
+     * Set device label.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} label New label string
+     * @returns {Promise<boolean>} True on success
+     */
+    async setLabel(providerName, deviceName, label) {
+        return this.call("SetLabel", [providerName, deviceName, label]);
+    }
+
+    /**
+     * Verify an ECC/SM2 signature.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} pubKeyBase64 ECCPUBLICKEYBLOB (base64 encoded)
+     * @param {string} dataBase64 Original data (base64 encoded)
+     * @param {string} signatureBase64 ECCSIGNATUREBLOB (base64 encoded)
+     * @returns {Promise<boolean>} True if signature is valid
+     */
+    async eccVerify(providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64) {
+        return this.call("ECCVerify", [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]);
+    }
+
+    /**
+     * Create a new container in an application.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} appName Application name
+     * @param {string} containerName Container name to create
+     * @returns {Promise<string>} Created container name
+     */
+    async createContainer(providerName, deviceName, appName, containerName) {
+        return this.call("CreateContainer", [providerName, deviceName, appName, containerName]);
+    }
+
+    /**
+     * Get container type (Sign/Enc/Both).
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} appName Application name
+     * @param {string} containerName Container name
+     * @returns {Promise<{type:number, typeStr:string}>} Container type
+     */
+    async getContainerType(providerName, deviceName, appName, containerName) {
+        return this.call("GetContainerType", [providerName, deviceName, appName, containerName]);
+    }
+
+    /**
+     * Sign data using RSA key in a container.
+     * @param {string} certKey Certificate key path (provider/device/app/container[/serial])
+     * @param {string} dataBase64 Data to sign (base64 encoded)
+     * @returns {Promise<string>} Base64-encoded RSA signature
+     */
+    async rsaSignData(certKey, dataBase64) {
+        return this.call("RSASignData", [certKey, dataBase64]);
+    }
+
+    /**
+     * Lock a device with a timeout.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {number} [timeout=5000] Timeout in milliseconds
+     * @returns {Promise<boolean>} True on success
+     */
+    async lockDev(providerName, deviceName, timeout = 5000) {
+        return this.call("LockDev", [providerName, deviceName, timeout]);
+    }
+
+    /**
+     * Unlock a device.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @returns {Promise<boolean>} True on success
+     */
+    async unlockDev(providerName, deviceName) {
+        return this.call("UnlockDev", [providerName, deviceName]);
+    }
+
+    /**
+     * Transmit APDU command to device.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} commandBase64 APDU command (base64 encoded)
+     * @returns {Promise<string>} Base64-encoded response
+     */
+    async transmit(providerName, deviceName, commandBase64) {
+        return this.call("Transmit", [providerName, deviceName, commandBase64]);
+    }
+
+    /**
+     * Generate ECC/SM2 key pair in a container.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} appName Application name
+     * @param {string} containerName Container name
+     * @param {number} [algId] Algorithm ID (default: SGD_SM2_1)
+     * @returns {Promise<{publicKeyBase64:string, bitLen:number}>}
+     */
+    async genECCKeyPair(providerName, deviceName, appName, containerName, algId) {
+        return this.call("GenECCKeyPair", [providerName, deviceName, appName, containerName, algId]);
+    }
+
+    /**
+     * Generate RSA key pair in a container.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} appName Application name
+     * @param {string} containerName Container name
+     * @param {number} [bitsLen=2048] Key length in bits
+     * @returns {Promise<{publicKeyBase64:string, bitLen:number}>}
+     */
+    async genRSAKeyPair(providerName, deviceName, appName, containerName, bitsLen = 2048) {
+        return this.call("GenRSAKeyPair", [providerName, deviceName, appName, containerName, bitsLen]);
+    }
+
+    /**
+     * Verify an RSA signature.
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {string} pubKeyBase64 RSAPUBLICKEYBLOB (base64 encoded)
+     * @param {string} dataBase64 Original data (base64 encoded)
+     * @param {string} signatureBase64 Signature (base64 encoded)
+     * @returns {Promise<boolean>} True if signature is valid
+     */
+    async rsaVerify(providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64) {
+        return this.call("RSAVerify", [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]);
+    }
+
+    /**
+     * Initialize hash operation (step-by-step hashing).
+     * @param {string} providerName Provider name
+     * @param {string} deviceName Device name
+     * @param {number} [algId] Algorithm ID (default: SGD_SM3)
+     * @param {string} [idBase64] Optional ID for SM3withSM2 (base64 encoded)
+     * @returns {Promise<{handle:string}>} Hash handle for subsequent operations
+     */
+    async digestInit(providerName, deviceName, algId, idBase64 = "") {
+        return this.call("DigestInit", [providerName, deviceName, algId, idBase64]);
+    }
+
+    /**
+     * Update hash with more data (step-by-step hashing).
+     * @param {string} handle Hash handle from digestInit
+     * @param {string} dataBase64 Data to hash (base64 encoded)
+     * @returns {Promise<boolean>} True on success
+     */
+    async digestUpdate(handle, dataBase64) {
+        return this.call("DigestUpdate", [handle, dataBase64]);
+    }
+
+    /**
+     * Finalize hash operation and return result (step-by-step hashing).
+     * @param {string} handle Hash handle from digestInit
+     * @returns {Promise<string>} Base64-encoded hash value
+     */
+    async digestFinal(handle) {
+        return this.call("DigestFinal", [handle]);
+    }
+
+    /**
+     * Close hash handle without finalizing (cleanup).
+     * @param {string} handle Hash handle from digestInit
+     * @returns {Promise<boolean>} True on success
+     */
+    async closeHash(handle) {
+        return this.call("CloseHash", [handle]);
+    }
+
+    /**
+     * Cancel waiting for device event (for graceful shutdown).
+     * @returns {Promise<boolean>} True on success
+     */
+    async cancelWaitForDevEvent() {
+        return this.call("CancelWaitForDevEvent", []);
     }
 }
 

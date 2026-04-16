@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
 use crate::skf::api::SkfApi;
-use crate::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM};
+use crate::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM, DEVINFO, SendHandle};
 use base64::prelude::*;
 use x509_parser::prelude::*;
 
@@ -25,6 +25,9 @@ struct SkfContext {
     apis: RwLock<HashMap<String, Arc<SkfApi>>>,
     // Map of "provider/device/app" -> "pin"
     pins: RwLock<HashMap<String, String>>,
+    // Map of "hash_handle_key" -> (hash_handle, dev_handle, provider, lib_path)
+    // Using SendHandle to make this safe for async contexts
+    hash_handles: RwLock<HashMap<String, (SendHandle, SendHandle, String, String)>>,
 }
 
 impl SkfContext {
@@ -33,7 +36,24 @@ impl SkfContext {
             config,
             apis: RwLock::new(HashMap::new()),
             pins: RwLock::new(HashMap::new()),
+            hash_handles: RwLock::new(HashMap::new()),
         }
+    }
+
+    fn get_lib_path(&self, provider: &str) -> anyhow::Result<String> {
+        let os = std::env::consts::OS;
+        let raw_path = self.config.libs
+            .get(provider)
+            .and_then(|m| {
+                m.get(os)
+                 .or_else(|| m.iter().find(|(k, _)| k.eq_ignore_ascii_case(os)).map(|(_, v)| v))
+            })
+            .ok_or_else(|| {
+                 let available_providers: Vec<_> = self.config.libs.keys().collect();
+                 anyhow::anyhow!("Provider '{}' not configured for OS '{}'. Avail Provs: {:?}", provider, os, available_providers)
+            })?;
+
+        Ok(Self::expand_env_vars(raw_path))
     }
 
     fn get_api(&self, provider: &str) -> anyhow::Result<Arc<SkfApi>> {
@@ -2006,7 +2026,8 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             }), id)
         },
         "EncryptData" => {
-            // Params: [certKey, dataBase64, ivBase64, paddingType]
+            // Params: [certKey, dataBase64, ivBase64, paddingType, symKeyBase64?]
+            // symKeyBase64: optional SM4 symmetric key (16 bytes). If provided, set_symm_key is called before encrypt.
             let cert_key = match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(k) => k,
                 None => return RpcResponse::err(-2, "Missing certKey param".into(), id),
@@ -2020,6 +2041,15 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 None => return RpcResponse::err(-2, "Missing IV param".into(), id),
             };
             let padding_type = req.params.get(3).and_then(|v| v.as_u64()).unwrap_or(1) as ULONG;
+            let sym_key_b64 = req.params.get(4).and_then(|v| v.as_str());
+            let sym_key_bytes = if let Some(key_b64) = sym_key_b64 {
+                match BASE64_STANDARD.decode(key_b64) {
+                    Ok(b) => Some(b),
+                    Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
+                }
+            } else {
+                None
+            };
 
             // Parse certKey: provider/device/app/container[/serial]
             let parts: Vec<&str> = cert_key.splitn(5, '/').collect();
@@ -2105,6 +2135,28 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
             }
 
+            // Set symmetric key if provided
+            if let Some(ref key_bytes) = sym_key_bytes {
+                if key_bytes.len() != 16 {
+                    api.close_container(h_cont);
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    return RpcResponse::err(-2, "SM4 key must be 16 bytes".into(), id);
+                }
+                let mut key_buf = key_bytes.clone();
+                let ret = api.set_symm_key(h_cont, SGD_SM4_CBC, key_buf.as_mut_ptr(), key_buf.len() as ULONG);
+                if ret != SAR_OK {
+                    api.close_container(h_cont);
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("设置对称密钥失败: 0x{:08X}", ret),
+                        Language::EN => format!("SetSymmKey failed: 0x{:08X}", ret),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            }
+
             // Prepare BLOCKCIPHERPARAM for SM4-CBC
             let mut block_param = BLOCKCIPHERPARAM {
                 IV: [0u8; 32],
@@ -2156,7 +2208,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             }), id)
         },
         "DecryptData" => {
-            // Params: [certKey, encryptedDataBase64, ivBase64, paddingType]
+            // Params: [certKey, encryptedDataBase64, ivBase64, paddingType, symKeyBase64?]
             let cert_key = match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(k) => k,
                 None => return RpcResponse::err(-2, "Missing certKey param".into(), id),
@@ -2170,6 +2222,15 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 None => return RpcResponse::err(-2, "Missing IV param".into(), id),
             };
             let padding_type = req.params.get(3).and_then(|v| v.as_u64()).unwrap_or(1) as ULONG;
+            let sym_key_b64 = req.params.get(4).and_then(|v| v.as_str());
+            let sym_key_bytes = if let Some(key_b64) = sym_key_b64 {
+                match BASE64_STANDARD.decode(key_b64) {
+                    Ok(b) => Some(b),
+                    Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
+                }
+            } else {
+                None
+            };
 
             // Parse certKey: provider/device/app/container[/serial]
             let parts: Vec<&str> = cert_key.splitn(5, '/').collect();
@@ -2255,6 +2316,28 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
             }
 
+            // Set symmetric key if provided
+            if let Some(ref key_bytes) = sym_key_bytes {
+                if key_bytes.len() != 16 {
+                    api.close_container(h_cont);
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    return RpcResponse::err(-2, "SM4 key must be 16 bytes".into(), id);
+                }
+                let mut key_buf = key_bytes.clone();
+                let ret = api.set_symm_key(h_cont, SGD_SM4_CBC, key_buf.as_mut_ptr(), key_buf.len() as ULONG);
+                if ret != SAR_OK {
+                    api.close_container(h_cont);
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("设置对称密钥失败: 0x{:08X}", ret),
+                        Language::EN => format!("SetSymmKey failed: 0x{:08X}", ret),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            }
+
             // Prepare BLOCKCIPHERPARAM for SM4-CBC
             let mut block_param = BLOCKCIPHERPARAM {
                 IV: [0u8; 32],
@@ -2304,6 +2387,1140 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 "data": decrypted_b64,
                 "algorithm": "SM4-CBC"
             }), id)
+        },
+        "GetDevInfo" => {
+            // Params: [providerName, deviceName]
+            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_name = if prov_param.is_empty() || prov_param == "default" {
+                &ctx.config.default
+            } else {
+                prov_param
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let mut dev_info: DEVINFO = unsafe { std::mem::zeroed() };
+            let ret = api.get_dev_info(h_dev, &mut dev_info);
+
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("获取设备信息失败: 0x{:08X}", ret),
+                    Language::EN => format!("GetDevInfo failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            let manufacturer = unsafe { std::ffi::CStr::from_ptr(dev_info.Manufacturer.as_ptr()) }
+                .to_string_lossy().to_string();
+            let issuer = unsafe { std::ffi::CStr::from_ptr(dev_info.Issuer.as_ptr()) }
+                .to_string_lossy().to_string();
+            let label = unsafe { std::ffi::CStr::from_ptr(dev_info.Label.as_ptr()) }
+                .to_string_lossy().to_string();
+            let serial = unsafe { std::ffi::CStr::from_ptr(dev_info.SerialNumber.as_ptr()) }
+                .to_string_lossy().to_string();
+
+            RpcResponse::ok(serde_json::json!({
+                "version": { "major": dev_info.Version.major, "minor": dev_info.Version.minor },
+                "manufacturer": manufacturer,
+                "issuer": issuer,
+                "label": label,
+                "serialNumber": serial,
+                "hwVersion": { "major": dev_info.HWVersion.major, "minor": dev_info.HWVersion.minor },
+                "firmwareVersion": { "major": dev_info.FirmwareVersion.major, "minor": dev_info.FirmwareVersion.minor },
+                "algSymCap": dev_info.AlgSymCap,
+                "algAsymCap": dev_info.AlgAsymCap,
+                "algHashCap": dev_info.AlgHashCap,
+                "devAuthAlgId": dev_info.DevAuthAlgId,
+                "totalSpace": dev_info.TotalSpace,
+                "freeSpace": dev_info.FreeSpace,
+                "maxECCBufferSize": dev_info.MaxECCBufferSize,
+                "maxBufferSize": dev_info.MaxBufferSize,
+            }), id)
+        },
+        "GetDevState" => {
+            // Params: [providerName, deviceName]
+            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_name = if prov_param.is_empty() || prov_param == "default" {
+                &ctx.config.default
+            } else {
+                prov_param
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut dev_state: ULONG = 0;
+            let ret = api.get_dev_state(c_dev.into_raw(), &mut dev_state);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("获取设备状态失败: 0x{:08X}", ret),
+                    Language::EN => format!("GetDevState failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            // State: 0=absent, 1=present, 2=busy
+            let state_str = match dev_state {
+                0 => "absent",
+                1 => "present",
+                2 => "busy",
+                _ => "unknown",
+            };
+
+            RpcResponse::ok(serde_json::json!({
+                "state": dev_state,
+                "stateStr": state_str,
+            }), id)
+        },
+        "SetLabel" => {
+            // Params: [providerName, deviceName, label]
+            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_name = if prov_param.is_empty() || prov_param == "default" {
+                &ctx.config.default
+            } else {
+                prov_param
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let label = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(l) => l,
+                None => return RpcResponse::err(-2, "Missing label param".into(), id),
+            };
+
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let c_label = std::ffi::CString::new(label).unwrap();
+            let ret = api.set_label(h_dev, c_label.into_raw());
+
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("设置设备标签失败: 0x{:08X}", ret),
+                    Language::EN => format!("SetLabel failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            RpcResponse::ok(serde_json::json!(true), id)
+        },
+        "ECCVerify" => {
+            // Params: [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]
+            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_name = if prov_param.is_empty() || prov_param == "default" {
+                &ctx.config.default
+            } else {
+                prov_param
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let pub_key_b64 = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(k) => k,
+                None => return RpcResponse::err(-2, "Missing pubKey param".into(), id),
+            };
+            let data_b64 = match req.params.get(3).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing data param".into(), id),
+            };
+            let sig_b64 = match req.params.get(4).and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return RpcResponse::err(-2, "Missing signature param".into(), id),
+            };
+
+            let pub_key_bytes = match BASE64_STANDARD.decode(pub_key_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 pubKey: {}", e), id),
+            };
+            let mut data_bytes = match BASE64_STANDARD.decode(data_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            };
+            let sig_bytes = match BASE64_STANDARD.decode(sig_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 signature: {}", e), id),
+            };
+
+            // Parse ECCPUBLICKEYBLOB from raw bytes
+            if pub_key_bytes.len() < std::mem::size_of::<ECCPUBLICKEYBLOB>() {
+                return RpcResponse::err(-2, "pubKey too short for ECCPUBLICKEYBLOB".into(), id);
+            }
+            let ecc_pub_key: ECCPUBLICKEYBLOB = unsafe {
+                std::ptr::read(pub_key_bytes.as_ptr() as *const ECCPUBLICKEYBLOB)
+            };
+
+            // Parse ECCSIGNATUREBLOB from raw bytes
+            if sig_bytes.len() < std::mem::size_of::<ECCSIGNATUREBLOB>() {
+                return RpcResponse::err(-2, "signature too short for ECCSIGNATUREBLOB".into(), id);
+            }
+            let ecc_sig: ECCSIGNATUREBLOB = unsafe {
+                std::ptr::read(sig_bytes.as_ptr() as *const ECCSIGNATUREBLOB)
+            };
+
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let ret = api.ecc_verify(h_dev, &ecc_pub_key as *const ECCPUBLICKEYBLOB as *mut ECCPUBLICKEYBLOB, data_bytes.as_mut_ptr(), data_bytes.len() as ULONG, &ecc_sig as *const ECCSIGNATUREBLOB as *mut ECCSIGNATUREBLOB);
+
+            api.dis_connect_dev(h_dev);
+
+            if ret == SAR_OK {
+                RpcResponse::ok(serde_json::json!(true), id)
+            } else {
+                let msg = match lang {
+                    Language::CN => format!("ECC签名验证失败: 0x{:08X}", ret),
+                    Language::EN => format!("ECCVerify failed: 0x{:08X}", ret),
+                };
+                RpcResponse::err(ret as i32, msg, id)
+            }
+        },
+        "CreateContainer" => {
+            // Params: [providerName, deviceName, appName, containerName]
+            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_name = if prov_param.is_empty() || prov_param == "default" {
+                &ctx.config.default
+            } else {
+                prov_param
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(a) => a,
+                None => return RpcResponse::err(-2, "Missing appName param".into(), id),
+            };
+            let cont_name = match req.params.get(3).and_then(|v| v.as_str()) {
+                Some(c) => c,
+                None => return RpcResponse::err(-2, "Missing containerName param".into(), id),
+            };
+
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
+            }
+
+            // PIN from cache
+            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
+            let pin_cached = {
+                let pins = ctx.pins.read().unwrap();
+                pins.get(&pin_key).cloned()
+            };
+
+            if let Some(pin_str) = pin_cached {
+                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
+                let mut retry: ULONG = 0;
+                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
+                if ret != SAR_OK {
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
+                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            } else {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
+            }
+
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.create_container(h_app, c_cont.into_raw(), &mut h_cont);
+
+            if ret == SAR_OK {
+                api.close_container(h_cont);
+            }
+
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("创建容器失败: 0x{:08X}", ret),
+                    Language::EN => format!("CreateContainer failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            RpcResponse::ok(serde_json::json!(cont_name), id)
+        },
+        "GetContainerType" => {
+            // Params: [providerName, deviceName, appName, containerName]
+            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_name = if prov_param.is_empty() || prov_param == "default" {
+                &ctx.config.default
+            } else {
+                prov_param
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(a) => a,
+                None => return RpcResponse::err(-2, "Missing appName param".into(), id),
+            };
+            let cont_name = match req.params.get(3).and_then(|v| v.as_str()) {
+                Some(c) => c,
+                None => return RpcResponse::err(-2, "Missing containerName param".into(), id),
+            };
+
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
+            }
+
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
+            if ret != SAR_OK {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
+            }
+
+            let mut cont_type: ULONG = 0;
+            let ret = api.get_container_type(h_cont, &mut cont_type);
+
+            api.close_container(h_cont);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("获取容器类型失败: 0x{:08X}", ret),
+                    Language::EN => format!("GetContainerType failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            // Container type: 0x01=sign, 0x02=enc, 0x03=both
+            let type_str = match cont_type {
+                0x01 => "Sign",
+                0x02 => "Enc",
+                0x03 => "Both",
+                _ => "Unknown",
+            };
+
+            RpcResponse::ok(serde_json::json!({
+                "type": cont_type,
+                "typeStr": type_str,
+            }), id)
+        },
+        "RSASignData" => {
+            // Params: [certKey, dataBase64, PIN]
+            let cert_key = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(k) => k,
+                None => return RpcResponse::err(-2, "Missing certKey param".into(), id),
+            };
+            let data_b64 = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing data param".into(), id),
+            };
+
+            // Parse certKey: provider/device/app/container[/serial]
+            let parts: Vec<&str> = cert_key.splitn(5, '/').collect();
+            if parts.len() < 4 {
+                return RpcResponse::err(-2, "Invalid certKey format, expected: provider/device/app/container[/serial]".into(), id);
+            }
+            let prov_part = parts[0];
+            let prov_name = if prov_part.is_empty() || prov_part == "default" {
+                &ctx.config.default
+            } else {
+                prov_part
+            };
+            let dev_name = parts[1];
+            let app_name = parts[2];
+            let cont_name = parts[3];
+
+            let mut data_bytes = match BASE64_STANDARD.decode(data_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            };
+
+            let api = match ctx.get_api(prov_name) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
+            }
+
+            // PIN from cache
+            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
+            let pin_cached = {
+                let pins = ctx.pins.read().unwrap();
+                pins.get(&pin_key).cloned()
+            };
+
+            if let Some(pin_str) = pin_cached {
+                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
+                let mut retry: ULONG = 0;
+                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
+                if ret != SAR_OK {
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
+                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            } else {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
+            }
+
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
+            if ret != SAR_OK {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
+            }
+
+            // RSA Sign
+            let mut sig_buf = vec![0u8; 256]; // max 2048-bit RSA signature
+            let mut sig_len: ULONG = sig_buf.len() as ULONG;
+            let ret = api.rsa_sign_data(h_cont, data_bytes.as_mut_ptr(), data_bytes.len() as ULONG, sig_buf.as_mut_ptr(), &mut sig_len);
+
+            api.close_container(h_cont);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("RSA签名失败: 0x{:08X}", ret),
+                    Language::EN => format!("RSASignData failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            sig_buf.truncate(sig_len as usize);
+            let sig_b64 = BASE64_STANDARD.encode(&sig_buf);
+
+            RpcResponse::ok(serde_json::json!(sig_b64), id)
+        },
+        "LockDev" => {
+            // Params: [providerName, deviceName, timeout]
+            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(p) => p,
+                None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let timeout: ULONG = req.params.get(2).and_then(|v| v.as_u64()).unwrap_or(5000) as ULONG;
+
+            let lib_path = match ctx.get_lib_path(provider) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let ret = api.lock_dev(h_dev, timeout);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("锁定设备失败: 0x{:08X}", ret),
+                    Language::EN => format!("LockDev failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+            RpcResponse::ok(serde_json::json!(true), id)
+        },
+        "UnlockDev" => {
+            // Params: [providerName, deviceName]
+            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(p) => p,
+                None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+
+            let lib_path = match ctx.get_lib_path(provider) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let ret = api.unlock_dev(h_dev);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("解锁设备失败: 0x{:08X}", ret),
+                    Language::EN => format!("UnlockDev failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+            RpcResponse::ok(serde_json::json!(true), id)
+        },
+        "Transmit" => {
+            // Params: [providerName, deviceName, commandBase64]
+            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(p) => p,
+                None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let cmd_b64 = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(c) => c,
+                None => return RpcResponse::err(-2, "Missing commandBase64 param".into(), id),
+            };
+            let cmd_bytes = match BASE64_STANDARD.decode(cmd_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 command: {}", e), id),
+            };
+
+            let lib_path = match ctx.get_lib_path(provider) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let mut resp_buf = vec![0u8; 4096];
+            let mut resp_len: ULONG = resp_buf.len() as ULONG;
+            let ret = api.transmit(h_dev, cmd_bytes.as_ptr() as *mut BYTE, cmd_bytes.len() as ULONG, resp_buf.as_mut_ptr(), &mut resp_len);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("透传APDU失败: 0x{:08X}", ret),
+                    Language::EN => format!("Transmit failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            resp_buf.truncate(resp_len as usize);
+            let resp_b64 = BASE64_STANDARD.encode(&resp_buf);
+            RpcResponse::ok(serde_json::json!(resp_b64), id)
+        },
+        "CancelWaitForDevEvent" => {
+            let api = match ctx.get_api(&ctx.config.default) {
+                Ok(a) => a,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+
+            let ret = api.cancel_wait_for_dev_event();
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("取消等待失败: 0x{:08X}", ret),
+                    Language::EN => format!("CancelWaitForDevEvent failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+            RpcResponse::ok(serde_json::json!(true), id)
+        },
+        "GenECCKeyPair" => {
+            // Params: [providerName, deviceName, appName, containerName, algId]
+            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(p) => p,
+                None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(a) => a,
+                None => return RpcResponse::err(-2, "Missing appName param".into(), id),
+            };
+            let cont_name = match req.params.get(3).and_then(|v| v.as_str()) {
+                Some(c) => c,
+                None => return RpcResponse::err(-2, "Missing containerName param".into(), id),
+            };
+            let alg_id: ULONG = req.params.get(4).and_then(|v| v.as_u64()).unwrap_or(SGD_SM2_1 as u64) as ULONG;
+
+            let lib_path = match ctx.get_lib_path(provider) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
+            }
+
+            // Verify PIN
+            let pin_key = format!("{}/{}/{}", provider, dev_name, app_name);
+            let pin_cached = {
+                let pins = ctx.pins.read().unwrap();
+                pins.get(&pin_key).cloned()
+            };
+            if let Some(pin_str) = pin_cached {
+                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
+                let mut retry: ULONG = 0;
+                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
+                if ret != SAR_OK {
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
+                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            } else {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
+            }
+
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
+            if ret != SAR_OK {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
+            }
+
+            let mut ecc_pub_key: ECCPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
+            ecc_pub_key.BitLen = 256; // SM2 default
+            let ret = api.gen_ecc_key_pair(h_cont, alg_id, &mut ecc_pub_key);
+
+            api.close_container(h_cont);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("生成ECC密钥对失败: 0x{:08X}", ret),
+                    Language::EN => format!("GenECCKeyPair failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            let pub_key_bytes = unsafe {
+                let p = &ecc_pub_key as *const ECCPUBLICKEYBLOB as *const u8;
+                let size = std::mem::size_of::<ECCPUBLICKEYBLOB>();
+                std::slice::from_raw_parts(p, size).to_vec()
+            };
+            let pub_key_b64 = BASE64_STANDARD.encode(&pub_key_bytes);
+
+            RpcResponse::ok(serde_json::json!({
+                "publicKeyBase64": pub_key_b64,
+                "bitLen": ecc_pub_key.BitLen,
+            }), id)
+        },
+        "GenRSAKeyPair" => {
+            // Params: [providerName, deviceName, appName, containerName, bitsLen]
+            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(p) => p,
+                None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(a) => a,
+                None => return RpcResponse::err(-2, "Missing appName param".into(), id),
+            };
+            let cont_name = match req.params.get(3).and_then(|v| v.as_str()) {
+                Some(c) => c,
+                None => return RpcResponse::err(-2, "Missing containerName param".into(), id),
+            };
+            let bits_len: ULONG = req.params.get(4).and_then(|v| v.as_u64()).unwrap_or(2048) as ULONG;
+
+            let lib_path = match ctx.get_lib_path(provider) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
+            }
+
+            // Verify PIN
+            let pin_key = format!("{}/{}/{}", provider, dev_name, app_name);
+            let pin_cached = {
+                let pins = ctx.pins.read().unwrap();
+                pins.get(&pin_key).cloned()
+            };
+            if let Some(pin_str) = pin_cached {
+                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
+                let mut retry: ULONG = 0;
+                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
+                if ret != SAR_OK {
+                    api.close_application(h_app);
+                    api.dis_connect_dev(h_dev);
+                    let msg = match lang {
+                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
+                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
+                    };
+                    return RpcResponse::err(ret as i32, msg, id);
+                }
+            } else {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
+            }
+
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
+            if ret != SAR_OK {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
+            }
+
+            let mut rsa_pub_key: RSAPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
+            let ret = api.gen_rsa_key_pair(h_cont, bits_len, &mut rsa_pub_key);
+
+            api.close_container(h_cont);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("生成RSA密钥对失败: 0x{:08X}", ret),
+                    Language::EN => format!("GenRSAKeyPair failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            let pub_key_bytes = unsafe {
+                let p = &rsa_pub_key as *const RSAPUBLICKEYBLOB as *const u8;
+                let size = std::mem::size_of::<RSAPUBLICKEYBLOB>();
+                std::slice::from_raw_parts(p, size).to_vec()
+            };
+            let pub_key_b64 = BASE64_STANDARD.encode(&pub_key_bytes);
+
+            RpcResponse::ok(serde_json::json!({
+                "publicKeyBase64": pub_key_b64,
+                "bitLen": rsa_pub_key.BitLen,
+            }), id)
+        },
+        "RSAVerify" => {
+            // Params: [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]
+            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(p) => p,
+                None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let pub_key_b64 = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(k) => k,
+                None => return RpcResponse::err(-2, "Missing pubKeyBase64 param".into(), id),
+            };
+            let data_b64 = match req.params.get(3).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing dataBase64 param".into(), id),
+            };
+            let sig_b64 = match req.params.get(4).and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return RpcResponse::err(-2, "Missing signatureBase64 param".into(), id),
+            };
+
+            let pub_key_bytes = match BASE64_STANDARD.decode(pub_key_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 publicKey: {}", e), id),
+            };
+            if pub_key_bytes.len() < std::mem::size_of::<RSAPUBLICKEYBLOB>() {
+                return RpcResponse::err(-2, "RSAPUBLICKEYBLOB data too short".into(), id);
+            }
+
+            let mut data_bytes = match BASE64_STANDARD.decode(data_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            };
+            let sig_bytes = match BASE64_STANDARD.decode(sig_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 signature: {}", e), id),
+            };
+
+            let lib_path = match ctx.get_lib_path(provider) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let mut rsa_pub_key: RSAPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    pub_key_bytes.as_ptr(),
+                    &mut rsa_pub_key as *mut RSAPUBLICKEYBLOB as *mut u8,
+                    std::mem::size_of::<RSAPUBLICKEYBLOB>(),
+                );
+            }
+
+            let ret = api.rsa_verify(
+                h_dev,
+                &mut rsa_pub_key,
+                data_bytes.as_mut_ptr(),
+                data_bytes.len() as ULONG,
+                sig_bytes.as_ptr() as *mut BYTE,
+                sig_bytes.len() as ULONG,
+            );
+            api.dis_connect_dev(h_dev);
+
+            if ret == SAR_OK {
+                RpcResponse::ok(serde_json::json!(true), id)
+            } else {
+                let msg = match lang {
+                    Language::CN => format!("RSA验签失败: 0x{:08X}", ret),
+                    Language::EN => format!("RSAVerify failed: 0x{:08X}", ret),
+                };
+                RpcResponse::err(ret as i32, msg, id)
+            }
+        },
+        "DigestInit" => {
+            // Params: [providerName, deviceName, algId, idBase64]
+            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(p) => p,
+                None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let alg_id: ULONG = req.params.get(2).and_then(|v| v.as_u64()).unwrap_or(SGD_SM3 as u64) as ULONG;
+            let id_b64 = req.params.get(3).and_then(|v| v.as_str()).unwrap_or("");
+            let id_bytes = if id_b64.is_empty() { Vec::new() } else { BASE64_STANDARD.decode(id_b64).unwrap_or_default() };
+
+            let lib_path = match ctx.get_lib_path(provider) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+            }
+
+            let mut h_hash: HANDLE = std::ptr::null_mut();
+            let ret = api.digest_init(
+                h_dev,
+                alg_id,
+                std::ptr::null_mut(), // no ECC public key for plain hash
+                id_bytes.as_ptr() as *mut BYTE,
+                id_bytes.len() as ULONG,
+                &mut h_hash,
+            );
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                let msg = match lang {
+                    Language::CN => format!("DigestInit失败: 0x{:08X}", ret),
+                    Language::EN => format!("DigestInit failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            // Store hash handle in context for subsequent DigestUpdate/DigestFinal/CloseHash
+            let id_str = id.as_ref().map_or("null".to_string(), |v| v.to_string());
+            let handle_key = format!("hash_{}", id_str);
+            {
+                let mut hash_handles = ctx.hash_handles.write().unwrap();
+                hash_handles.insert(handle_key.clone(), (SendHandle::from(h_hash), SendHandle::from(h_dev), provider.to_string(), lib_path));
+            }
+
+            RpcResponse::ok(serde_json::json!({
+                "handle": handle_key,
+            }), id)
+        },
+        "DigestUpdate" => {
+            // Params: [handle, dataBase64]
+            let handle_key = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(h) => h,
+                None => return RpcResponse::err(-2, "Missing handle param".into(), id),
+            };
+            let data_b64 = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing dataBase64 param".into(), id),
+            };
+            let mut data_bytes = match BASE64_STANDARD.decode(data_b64) {
+                Ok(b) => b,
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            };
+
+            let hash_handles = ctx.hash_handles.read().unwrap();
+            let (send_h_hash, _send_h_dev, provider, lib_path) = match hash_handles.get(handle_key) {
+                Some(h) => (h.0, h.1, h.2.clone(), h.3.clone()),
+                None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+            };
+            drop(hash_handles);
+
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+            let h_hash = HANDLE::from(send_h_hash);
+            let ret = api.digest_update(h_hash, data_bytes.as_mut_ptr(), data_bytes.len() as ULONG);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("DigestUpdate失败: 0x{:08X}", ret),
+                    Language::EN => format!("DigestUpdate failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+            RpcResponse::ok(serde_json::json!(true), id)
+        },
+        "DigestFinal" => {
+            // Params: [handle]
+            let handle_key = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(h) => h,
+                None => return RpcResponse::err(-2, "Missing handle param".into(), id),
+            };
+
+            let mut hash_handles = ctx.hash_handles.write().unwrap();
+            let (send_h_hash, send_h_dev, provider, lib_path) = match hash_handles.remove(handle_key) {
+                Some(h) => h,
+                None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+            };
+            drop(hash_handles);
+
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let h_hash = HANDLE::from(send_h_hash);
+            let h_dev = HANDLE::from(send_h_dev);
+
+            let mut hash_buf = vec![0u8; 64]; // max hash size (SHA-512 = 64 bytes, SM3 = 32)
+            let mut hash_len: ULONG = hash_buf.len() as ULONG;
+            let ret = api.digest_final(h_hash, hash_buf.as_mut_ptr(), &mut hash_len);
+
+            // Always close hash handle
+            api.close_hash(h_hash);
+            api.dis_connect_dev(h_dev);
+
+            if ret != SAR_OK {
+                let msg = match lang {
+                    Language::CN => format!("DigestFinal失败: 0x{:08X}", ret),
+                    Language::EN => format!("DigestFinal failed: 0x{:08X}", ret),
+                };
+                return RpcResponse::err(ret as i32, msg, id);
+            }
+
+            hash_buf.truncate(hash_len as usize);
+            let hash_b64 = BASE64_STANDARD.encode(&hash_buf);
+            RpcResponse::ok(serde_json::json!(hash_b64), id)
+        },
+        "CloseHash" => {
+            // Params: [handle]
+            let handle_key = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(h) => h,
+                None => return RpcResponse::err(-2, "Missing handle param".into(), id),
+            };
+
+            let mut hash_handles = ctx.hash_handles.write().unwrap();
+            let (send_h_hash, send_h_dev, _provider, lib_path) = match hash_handles.remove(handle_key) {
+                Some(h) => h,
+                None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+            };
+            drop(hash_handles);
+
+            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+
+            let h_hash = HANDLE::from(send_h_hash);
+            let h_dev = HANDLE::from(send_h_dev);
+
+            api.close_hash(h_hash);
+            api.dis_connect_dev(h_dev);
+
+            RpcResponse::ok(serde_json::json!(true), id)
         },
         _ => RpcResponse::err(-3, format!("Method {} not found", req.method), id),
     }

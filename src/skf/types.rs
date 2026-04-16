@@ -26,6 +26,30 @@ pub type DEVHANDLE = HANDLE;
 pub type HAPPLICATION = HANDLE;
 pub type HCONTAINER = HANDLE;
 
+// Send + Sync wrapper for HANDLE types (for use in async contexts)
+// SAFETY: SKF handles are only valid while the device/app is open,
+// and we ensure they are used within the same process context.
+// The actual safety is managed by the SKF library.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct SendHandle(pub HANDLE);
+
+unsafe impl Send for SendHandle {}
+unsafe impl Sync for SendHandle {}
+
+// Convert helper
+impl From<HANDLE> for SendHandle {
+    fn from(h: HANDLE) -> Self {
+        Self(h)
+    }
+}
+
+impl From<SendHandle> for HANDLE {
+    fn from(s: SendHandle) -> Self {
+        s.0
+    }
+}
+
 // Structs
 
 #[repr(C)]

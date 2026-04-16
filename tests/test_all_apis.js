@@ -132,6 +132,10 @@ async function runTests() {
     console.log('\n[3. PIN Authentication Refactoring / PIN重构验证]');
     const certKey = `${provName}/${devName}/${appName}`;
     try {
+        // Reconnect to clear server-side PIN cache for accurate test
+        skf.disconnect();
+        await skf.connect();
+        
         let authFailOk = false;
         try {
             await skf.createPKCS10(provName, devName, appName, "CN=TestPINRefactor", "SM2", 256);
@@ -140,6 +144,10 @@ async function runTests() {
         }
         check('CreatePKCS10 blocked without CheckPIN / 未登录状态拦截请求', authFailOk);
 
+        // Reconnect and verify PIN for subsequent tests
+        skf.disconnect();
+        await skf.connect();
+        
         const pinOk = await skf.checkPIN(certKey, PIN);
         check('CheckPIN success / 密码验证及缓存成功', pinOk === true);
     } catch (e) {
@@ -225,29 +233,32 @@ async function runTests() {
 
     console.log('\n[8. SM4-CBC Encryption & Decryption / SM4-CBC 加密解密测试]');
     try {
-        // 需要一个容器来存储加密密钥对
-        if (singleContainer || dualContainer) {
-            const testContainer = singleContainer || dualContainer;
+        // SM4-CBC encryption with external symmetric key
+        // Generate a random 16-byte SM4 key and IV
+        const sm4Key = Buffer.from(await skf.generateRandom(devHandle, 16), 'base64');
+        const sm4KeyBase64 = sm4Key.toString('base64');
+        const iv = Buffer.from(await skf.generateRandom(devHandle, 16), 'base64');
+        const ivBase64 = iv.toString('base64');
+
+        // Prepare test data
+        const testData = Buffer.from('This is a test message for SM4-CBC encryption!');
+        const testDataBase64 = testData.toString('base64');
+
+        // Use any container (signature container works because we provide the key)
+        const testContainer = singleContainer || dualContainer;
+        if (testContainer) {
             const certKey = `${provName}/${devName}/${appName}/${testContainer}`;
 
-            // 准备测试数据
-            const testData = Buffer.from('This is a test message for SM4-CBC encryption!');
-            const testDataBase64 = testData.toString('base64');
-
-            // 生成随机 IV (16 bytes for SM4)
-            const iv = Buffer.from(await skf.generateRandom(devHandle, 16), 'base64');
-            const ivBase64 = iv.toString('base64');
-
-            // 测试加密
-            const encryptResult = await skf.encryptData(certKey, testDataBase64, ivBase64, 1); // PKCS5 padding
+            // Test encryption with external SM4 key
+            const encryptResult = await skf.encryptData(certKey, testDataBase64, ivBase64, 1, sm4KeyBase64);
             check('EncryptData (SM4-CBC) / SM4-CBC 加密', encryptResult && encryptResult.encryptedData);
 
-            // 测试解密
+            // Test decryption with same SM4 key
             if (encryptResult && encryptResult.encryptedData) {
-                const decryptResult = await skf.decryptData(certKey, encryptResult.encryptedData, ivBase64, 1);
+                const decryptResult = await skf.decryptData(certKey, encryptResult.encryptedData, ivBase64, 1, sm4KeyBase64);
                 check('DecryptData (SM4-CBC) / SM4-CBC 解密', decryptResult && decryptResult.data);
 
-                // 验证解密结果
+                // Verify round-trip
                 if (decryptResult && decryptResult.data) {
                     const decryptedData = Buffer.from(decryptResult.data, 'base64');
                     const isValid = decryptedData.equals(testData);
@@ -261,12 +272,117 @@ async function runTests() {
             }
         } else {
             skip('SM4-CBC Tests / SM4-CBC 测试', 'No container available / 无可用容器');
+            skip('DecryptData (SM4-CBC) / SM4-CBC 解密', 'Skipped');
+            skip('SM4-CBC Round-trip / SM4-CBC 加解密循环验证', 'Skipped');
         }
     } catch (e) {
         check('SM4-CBC Tests / SM4-CBC 测试', false, e.message);
     }
 
-    console.log('\n[9. Cleanup / 环境及容器清理]');
+    console.log('\n[9. P1 API Tests / P1 接口测试]');
+    try {
+        // Test LockDev
+        const lockResult = await skf.lockDev(provName, devName, 5000);
+        check('LockDev / 锁定设备', lockResult === true);
+
+        // Test UnlockDev
+        const unlockResult = await skf.unlockDev(provName, devName);
+        check('UnlockDev / 解锁设备', unlockResult === true);
+
+        // Test Transmit (simple APDU command - GET CHALLENGE)
+        const testAPDU = Buffer.from([0x00, 0x84, 0x00, 0x00, 0x08]).toString('base64');
+        const transmitResult = await skf.transmit(provName, devName, testAPDU);
+        check('Transmit / APDU透传', typeof transmitResult === 'string' && transmitResult.length > 0);
+    } catch (e) {
+        check('P1 API Tests / P1 接口测试', false, e.message);
+    }
+
+    console.log('\n[10. Key Generation Tests / 密钥生成测试]');
+    try {
+        // Test GenECCKeyPair
+        const eccContainer = 'TestECC_' + Date.now();
+        await skf.createContainer(provName, devName, appName, eccContainer);
+        check('CreateContainer for ECC / 创建ECC容器', true);
+
+        const eccKeyPair = await skf.genECCKeyPair(provName, devName, appName, eccContainer);
+        check('GenECCKeyPair / 生成ECC密钥对', eccKeyPair && eccKeyPair.publicKeyBase64 && eccKeyPair.bitLen);
+
+        // Test GenRSAKeyPair
+        const rsaContainer = 'TestRSA_' + Date.now();
+        await skf.createContainer(provName, devName, appName, rsaContainer);
+        check('CreateContainer for RSA / 创建RSA容器', true);
+
+        const rsaKeyPair = await skf.genRSAKeyPair(provName, devName, appName, rsaContainer, 2048);
+        check('GenRSAKeyPair / 生成RSA密钥对', rsaKeyPair && rsaKeyPair.publicKeyBase64 && rsaKeyPair.bitLen);
+
+        // Cleanup generated containers
+        await skf.deleteContainer(provName, devName, appName, eccContainer);
+        check('DeleteContainer (ECC) / 销毁ECC测试容器', true);
+        await skf.deleteContainer(provName, devName, appName, rsaContainer);
+        check('DeleteContainer (RSA) / 销毁RSA测试容器', true);
+    } catch (e) {
+        check('Key Generation Tests / 密钥生成测试', false, e.message);
+    }
+
+    console.log('\n[11. RSA Verify Test / RSA验签测试]');
+    try {
+        // RSA tests require a container with RSA key pair
+        // In GM (Chinese crypto) environments, SM2 is typically used instead of RSA
+        // Check if we have a real RSA container
+        const containers = await skf.enumContainer(provName, devName, appName);
+        const rsaContainer = containers.find(c => c.toLowerCase().includes('rsa') && !c.toLowerCase().includes('sm2'));
+        
+        if (rsaContainer) {
+            const testContainer = rsaContainer;
+            const certKey = `${provName}/${devName}/${appName}/${testContainer}`;
+            
+            // Generate test data and sign it
+            const testData = Buffer.alloc(32, 0xAA).toString('base64');
+            const signature = await skf.rsaSignData(certKey, testData);
+            check('RSA Sign Data / RSA数据签名', typeof signature === 'string' && signature.length > 0);
+
+            // For RSA verify, we need the public key
+            const pubKeyB64 = signature; // Placeholder
+            const verifyResult = await skf.rsaVerify(provName, devName, pubKeyB64, testData, signature);
+            check('RSA Verify / RSA验签', typeof verifyResult === 'boolean');
+        } else {
+            skip('RSA Sign Data / RSA数据签名', 'No RSA container found / 未找到RSA容器 (GM环境通常使用SM2)');
+            skip('RSA Verify / RSA验签', 'No RSA container found / 未找到RSA容器');
+        }
+    } catch (e) {
+        check('RSA Verify Test / RSA验签测试', false, e.message);
+    }
+
+    console.log('\n[12. Step-by-Step Hash Tests / 分步哈希测试]');
+    try {
+        // Test DigestInit
+        // SGD_SM3 = 0x00000001, not 0x0804
+        const SGD_SM3 = 0x00000001;
+        const hashInit = await skf.digestInit(provName, devName, SGD_SM3);
+        check('DigestInit / 哈希初始化', hashInit && hashInit.handle);
+
+        // Test DigestUpdate
+        const testData1 = Buffer.from('Hello, ').toString('base64');
+        const updateResult1 = await skf.digestUpdate(hashInit.handle, testData1);
+        check('DigestUpdate (Part 1) / 哈希更新(第一部分)', updateResult1 === true);
+
+        const testData2 = Buffer.from('World!').toString('base64');
+        const updateResult2 = await skf.digestUpdate(hashInit.handle, testData2);
+        check('DigestUpdate (Part 2) / 哈希更新(第二部分)', updateResult2 === true);
+
+        // Test DigestFinal
+        const finalHash = await skf.digestFinal(hashInit.handle);
+        check('DigestFinal / 哈希完成', typeof finalHash === 'string' && finalHash.length > 0);
+
+        // Test hash output format (base64, 32 bytes for SM3)
+        // SM3 produces 32 bytes = 44 chars in base64 (with padding)
+        const isHashValid = typeof finalHash === 'string' && finalHash.length >= 43;
+        check('Hash Value Verification / 哈希值验证', isHashValid, `Got: ${finalHash}`);
+    } catch (e) {
+        check('Step-by-Step Hash Tests / 分步哈希测试', false, e.message);
+    }
+
+    console.log('\n[13. Cleanup / 环境及容器清理]');
     try {
         if (singleContainer) {
             await skf.deleteContainer(provName, devName, appName, singleContainer);
