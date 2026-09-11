@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use libloading::Library;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use skf_service::skf::api::SkfApi;
 use skf_service::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM, DEVINFO};
 use skf_service::crypto::*;
@@ -9,6 +9,7 @@ use base64::prelude::*;
 use x509_parser::prelude::*;
 
 use skf_service::config::SkfConfig;
+use skf_service::protocol::{Language, RpcRequest, RpcResponse};
 use skf_service::provider::{ProviderError, SkfProvider};
 use skf_service::session::auth::{AuthKey, AuthRejection};
 use skf_service::session::{SessionGuard, SessionRegistry, SessionState};
@@ -85,41 +86,6 @@ impl SkfContext {
         Ok(api)
     }
 
-}
-
-// JSON-RPC Request/Response
-#[derive(Debug, Deserialize)]
-struct RpcRequest {
-    method: String,
-    #[serde(default)]
-    params: Vec<serde_json::Value>,
-    id: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize)]
-struct RpcResponse {
-    error: i32,
-    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
-    result: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<serde_json::Value>,
-}
-
-impl RpcResponse {
-    fn ok(result: serde_json::Value, id: Option<serde_json::Value>) -> Self {
-        Self { error: 0, result, message: None, id }
-    }
-    fn err(code: i32, msg: String, id: Option<serde_json::Value>) -> Self {
-        Self { error: code, result: serde_json::Value::Null, message: Some(msg), id }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum Language {
-    EN,
-    CN,
 }
 
 fn main() -> anyhow::Result<()> {

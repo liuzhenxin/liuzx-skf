@@ -10,6 +10,7 @@
 //! |--------|--------|
 //! | [`crypto`] | Extracted from `main.rs` (pure encoding helpers) |
 //! | [`config`] | Configuration load, `%VAR%` expansion, provider path resolution |
+//! | [`protocol`] | Request/response types and typed parameter access |
 //! | [`provider`] | Provider abstraction over the SKF C ABI (native + fake) |
 //! | [`server`] | Transport, bind/serve split, and the session seam |
 //! | [`session`] | Session identity, authorization, and opaque resource ownership |
@@ -21,6 +22,7 @@
 
 pub mod config;
 pub mod crypto;
+pub mod protocol;
 pub mod provider;
 pub mod server;
 pub mod session;
