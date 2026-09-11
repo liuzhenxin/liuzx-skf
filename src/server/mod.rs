@@ -273,10 +273,22 @@ where
         None => None,
     };
 
-    let listener = TcpListener::bind(&opts.ws_addr).await.map_err(|e| {
+    // Refuse a non-loopback WebSocket bind before the socket is opened unless the
+    // operator explicitly opted in. The address is resolved first, so `0.0.0.0`,
+    // a LAN address, and a hostname that resolves off-host are all caught
+    // (TRANS-06, D-17/D-19). The HTTP demo keeps its own defaults (D-18).
+    let ws_socket = resolve_bind_addr(&opts.ws_addr)?;
+    if !ws_socket.ip().is_loopback() && !config.allows_remote() {
+        return Err(anyhow::anyhow!(
+            "refusing to bind WebSocket listener to non-loopback address {} without explicit opt-in; set allow_remote: true in the config or SKF_ALLOW_REMOTE=1",
+            ws_socket
+        ));
+    }
+
+    let listener = TcpListener::bind(ws_socket).await.map_err(|e| {
         anyhow::anyhow!(
             "failed to bind WebSocket listener on {}: {}",
-            opts.ws_addr,
+            ws_socket,
             e
         )
     })?;
@@ -293,6 +305,18 @@ where
         listener,
         PreparedServer { config, provider },
     ))
+}
+
+/// Resolve a `host:port` string to the first socket address it names.
+///
+/// Resolving before binding is what lets the loopback gate reason about the
+/// address that will actually be used rather than about a literal string.
+fn resolve_bind_addr(addr: &str) -> anyhow::Result<SocketAddr> {
+    use std::net::ToSocketAddrs;
+    addr.to_socket_addrs()
+        .map_err(|e| anyhow::anyhow!("invalid WS address '{}': {}", addr, e))?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("WS address '{}' resolved to no address", addr))
 }
 
 /// Serve until `shutdown` flips (service mode) or forever (console mode).
