@@ -117,10 +117,14 @@ mod tests {
         Arc::new(SessionRegistry::new())
     }
 
+    fn ttl() -> std::time::Duration {
+        std::time::Duration::from_secs(600)
+    }
+
     #[test]
     fn registering_a_session_makes_it_counted() {
         let registry = new_registry();
-        let _guard = SessionGuard::create(&registry, SessionState::new());
+        let _guard = SessionGuard::create(&registry, SessionState::new(ttl()));
         assert_eq!(registry.session_count(), 1);
     }
 
@@ -130,7 +134,7 @@ mod tests {
     fn dropping_the_guard_deregisters_the_session() {
         let registry = new_registry();
         {
-            let _guard = SessionGuard::create(&registry, SessionState::new());
+            let _guard = SessionGuard::create(&registry, SessionState::new(ttl()));
             assert_eq!(registry.session_count(), 1);
         }
         assert_eq!(
@@ -164,9 +168,9 @@ mod tests {
     #[test]
     fn several_sessions_are_counted_independently() {
         let registry = new_registry();
-        let first = SessionGuard::create(&registry, SessionState::new());
-        let second = SessionGuard::create(&registry, SessionState::new());
-        let third = SessionGuard::create(&registry, SessionState::new());
+        let first = SessionGuard::create(&registry, SessionState::new(ttl()));
+        let second = SessionGuard::create(&registry, SessionState::new(ttl()));
+        let third = SessionGuard::create(&registry, SessionState::new(ttl()));
         assert_eq!(registry.session_count(), 3);
 
         drop(second);
@@ -179,7 +183,7 @@ mod tests {
     #[test]
     fn guard_exposes_its_id_and_state() {
         let registry = new_registry();
-        let guard = SessionGuard::create(&registry, SessionState::new());
+        let guard = SessionGuard::create(&registry, SessionState::new(ttl()));
         assert_eq!(guard.id().as_str().len(), 32);
         assert_eq!(guard.id(), guard.state().id());
     }

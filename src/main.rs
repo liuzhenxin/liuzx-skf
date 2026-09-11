@@ -10,6 +10,8 @@ use x509_parser::prelude::*;
 
 use skf_service::config::SkfConfig;
 use skf_service::provider::{ProviderError, SkfProvider};
+use skf_service::session::auth::{AuthKey, AuthRejection};
+use skf_service::session::{SessionGuard, SessionRegistry, SessionState};
 
 struct SkfContext {
     config: SkfConfig,
@@ -17,8 +19,6 @@ struct SkfContext {
     /// remaining 33 migrate in Phase 2 (decision D-06).
     provider: Arc<dyn SkfProvider>,
     apis: RwLock<HashMap<String, Arc<SkfApi>>>,
-    // Map of "provider/device/app" -> "pin"
-    pins: RwLock<HashMap<String, String>>,
     // Map of "hash_handle_key" -> (hash_handle, dev_handle, provider, lib_path)
     // Using SendHandle to make this safe for async contexts
     hash_handles: RwLock<HashMap<String, (SendHandle, SendHandle, String, String)>>,
@@ -30,7 +30,6 @@ impl SkfContext {
             config,
             provider,
             apis: RwLock::new(HashMap::new()),
-            pins: RwLock::new(HashMap::new()),
             hash_handles: RwLock::new(HashMap::new()),
         }
     }
@@ -181,14 +180,18 @@ fn main() -> anyhow::Result<()> {
 struct JsonRpcSession {
     ctx: Arc<SkfContext>,
     lang: Language,
+    /// Owns this connection's authorization and native resources. Dropping it
+    /// deregisters the session and releases everything it holds.
+    guard: SessionGuard,
 }
 
 impl JsonRpcSession {
-    fn new(ctx: Arc<SkfContext>) -> Self {
+    fn new(ctx: Arc<SkfContext>, guard: SessionGuard) -> Self {
         Self {
             ctx,
             // The pre-refactor server defaulted every connection to English.
             lang: Language::EN,
+            guard,
         }
     }
 }
@@ -196,7 +199,8 @@ impl JsonRpcSession {
 impl skf_service::server::Session for JsonRpcSession {
     fn handle<'a>(&'a mut self, text: &'a str) -> futures_util::future::BoxFuture<'a, String> {
         Box::pin(async move {
-            let response = handle_request(&self.ctx, text, &mut self.lang).await;
+            let response =
+                handle_request(&self.ctx, self.guard.state_mut(), text, &mut self.lang).await;
             serde_json::to_string(&response).unwrap_or_else(|e| {
                 format!("{{\"error\":-1,\"message\":\"serialize failed: {}\"}}", e)
             })
@@ -207,11 +211,14 @@ impl skf_service::server::Session for JsonRpcSession {
 /// Session factory handed to the server for every accepted connection.
 struct JsonRpcSessionFactory {
     ctx: Arc<SkfContext>,
+    registry: Arc<SessionRegistry>,
+    ttl: std::time::Duration,
 }
 
 impl skf_service::server::SessionFactory for JsonRpcSessionFactory {
     fn create(&self) -> Box<dyn skf_service::server::Session> {
-        Box::new(JsonRpcSession::new(Arc::clone(&self.ctx)))
+        let guard = SessionGuard::create(&self.registry, SessionState::new(self.ttl));
+        Box::new(JsonRpcSession::new(Arc::clone(&self.ctx), guard))
     }
 }
 
@@ -223,7 +230,16 @@ fn build_sessions(
     provider: &Arc<dyn SkfProvider>,
 ) -> Box<dyn skf_service::server::SessionFactory> {
     let ctx = Arc::new(SkfContext::new(config.clone(), Arc::clone(provider)));
-    Box::new(JsonRpcSessionFactory { ctx })
+    // The TTL comes from the environment, never from the YAML: `SkfConfig` uses a
+    // flattened map to capture providers, so an extra top-level key would make the
+    // whole configuration fail to parse.
+    let ttl = skf_service::session::auth::ttl_from_env();
+    log::info!("session authorization lifetime: {}s", ttl.as_secs());
+    Box::new(JsonRpcSessionFactory {
+        ctx,
+        registry: Arc::new(SessionRegistry::new()),
+        ttl,
+    })
 }
 
 /// Run the server in console mode using the library bootstrap.
@@ -266,7 +282,44 @@ fn provider_load_failed(
     RpcResponse::err(-5, msg, id)
 }
 
-async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> RpcResponse {
+/// Clear this session's authorization for a device an operation just found missing.
+///
+/// Called from the failure paths that observe the device disappearing, so the next
+/// request is rejected instead of retrying a grant that can no longer succeed.
+/// Detection is therefore on next use rather than instantaneous — the trade-off
+/// taken instead of a background device-event broadcast.
+fn device_unavailable(state: &mut SessionState, provider: &str, device: &str) {
+    let removed = state.invalidate_device(provider, device);
+    if removed > 0 {
+        log::info!(
+            "device {}/{} is unavailable; cleared {} authorization grant(s)",
+            provider,
+            device,
+            removed
+        );
+    }
+}
+
+/// Confirm this session holds a live authorization for one application.
+///
+/// Replaces the pre-refactor pattern of reading a cached PIN and re-verifying it on
+/// every operation. The grant *is* the authorization now, and the PIN is not
+/// retained, so there is nothing to re-verify.
+fn session_authorized(
+    state: &mut SessionState,
+    provider: &str,
+    device: &str,
+    application: &str,
+) -> Result<(), AuthRejection> {
+    state.authorize(&AuthKey::new(provider, device, application))
+}
+
+async fn handle_request(
+    ctx: &SkfContext,
+    state: &mut SessionState,
+    text: &str,
+    lang: &mut Language,
+) -> RpcResponse {
     let req: RpcRequest = match serde_json::from_str(text) {
         Ok(r) => r,
         Err(e) => return RpcResponse::err(-1, format!("Invalid JSON: {}", e), None),
@@ -545,6 +598,8 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
              if ret != SAR_OK {
                  api.dis_connect_dev(h_dev);
+                 // A missing application is how a removed device surfaces here.
+                 device_unavailable(state, provider, dev_name);
                  return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
              }
 
@@ -616,30 +671,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
              if ret != SAR_OK {
                  api.dis_connect_dev(h_dev);
+                 // A missing application is how a removed device surfaces here.
+                 device_unavailable(state, provider, dev_name);
                  return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
              }
 
-             // PIN from cache
-             let pin_key = format!("{}/{}/{}", provider, dev_name, app_name);
-             let pin_cached = {
-                 let pins = ctx.pins.read().unwrap();
-                 pins.get(&pin_key).cloned()
-             };
-
-             if let Some(pin_str) = pin_cached {
-                 let c_pin = std::ffi::CString::new(pin_str).unwrap();
-                 let mut retry: ULONG = 0;
-                 let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                 if ret != SAR_OK {
-                     api.close_application(h_app);
-                     api.dis_connect_dev(h_dev);
-                     let msg = match lang {
-                         Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余: {}", ret, retry),
-                         Language::EN => format!("VerifyPIN failed: 0x{:08X}, retry: {}", ret, retry),
-                     };
-                     return RpcResponse::err(ret as i32, msg, id);
-                 }
-             } else {
+             // Authorization is a property of this session; the PIN is no longer
+             // retained, so there is nothing to re-verify on each operation.
+             if session_authorized(state, provider, dev_name, app_name).is_err() {
+                 api.close_application(h_app);
+                 api.dis_connect_dev(h_dev);
                  api.close_application(h_app);
                  api.dis_connect_dev(h_dev);
                  return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -1034,26 +1075,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
              if ret != SAR_OK {
                  api.dis_connect_dev(h_dev);
+                 // A missing application is how a removed device surfaces here.
+                 device_unavailable(state, provider, dev_name);
                  return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
              }
 
-             // PIN from cache
-             let pin_key = format!("{}/{}/{}", provider, dev_name, app_name);
-             let pin_cached = {
-                 let pins = ctx.pins.read().unwrap();
-                 pins.get(&pin_key).cloned()
-             };
-
-             if let Some(pin_str) = pin_cached {
-                 let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                 let mut retry: ULONG = 0;
-                 let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                 if ret != SAR_OK {
-                     api.close_application(h_app);
-                     api.dis_connect_dev(h_dev);
-                     return RpcResponse::err(ret as i32, format!("VerifyPIN failed: 0x{:08X}", ret), id);
-                 }
-             } else {
+             // Authorization is a property of this session; the PIN is no longer
+             // retained, so there is nothing to re-verify on each operation.
+             if session_authorized(state, provider, dev_name, app_name).is_err() {
+                 api.close_application(h_app);
+                 api.dis_connect_dev(h_dev);
                  api.close_application(h_app);
                  api.dis_connect_dev(h_dev);
                  return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -1137,30 +1168,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
-            // PIN from cache
-            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, prov_name, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -1304,36 +1321,17 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
               let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
               if ret != SAR_OK {
                   api.dis_connect_dev(h_dev);
+                  // A missing application is how a removed device surfaces here.
+                  device_unavailable(state, provider, dev_name);
                   return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
               }
 
               // Get PIN from cache
-              let pin_key = format!("{}/{}/{}", provider, dev_name, app_name);
-              let pin_cached = {
-                  let pins = ctx.pins.read().unwrap();
-                  let p = pins.get(&pin_key).cloned();
-                  if p.is_none() {
-                      eprintln!("[WARN] PIN cache miss for key: {}", pin_key);
-                  } else {
-                      eprintln!("[INFO] PIN cache hit for key: {}", pin_key);
-                  }
-                  p
-              };
-
-              if let Some(pin_str) = pin_cached {
-                  let c_pin = std::ffi::CString::new(pin_str).unwrap();
-                  let mut retry: ULONG = 0;
-                  let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                  if ret != SAR_OK {
-                      api.close_application(h_app);
-                      api.dis_connect_dev(h_dev);
-                      let msg = match lang {
-                          Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                          Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                      };
-                      return RpcResponse::err(ret as i32, msg, id);
-                  }
-              } else {
+              // Authorization is a property of this session; the PIN is no longer
+              // retained, so there is nothing to re-verify on each operation.
+              if session_authorized(state, provider, dev_name, app_name).is_err() {
+                  api.close_application(h_app);
+                  api.dis_connect_dev(h_dev);
                   api.close_application(h_app);
                   api.dis_connect_dev(h_dev);
                   return RpcResponse::err(-10, "User not logged in (PIN cache empty). Call CheckPIN first.".into(), id);
@@ -1668,6 +1666,8 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, prov_name, dev_name);
                 let extra = if ret == 0x0A00002E { " (Application Not Exists)" } else { "" };
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}{}", ret, extra), id);
             }
@@ -1678,11 +1678,10 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry_count);
             
             if ret == SAR_OK {
-                // Cache PIN: provider/device/app
-                let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
-                eprintln!("[INFO] Caching PIN for key: {}", pin_key);
-                let mut pins = ctx.pins.write().unwrap();
-                pins.insert(pin_key, pin_str.to_string());
+                // Record only a deadline. The PIN itself is not retained anywhere:
+                // a `String` cannot be wiped reliably, so the only dependable answer
+                // is not to keep it (SESS-05).
+                state.grant(AuthKey::new(prov_name, dev_name, app_name));
             }
 
             // Cleanup
@@ -1749,27 +1748,11 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 return RpcResponse::err(ret as i32, format!("OpenApp failed: 0x{:08X}", ret), id);
             }
 
-            // PIN from cache
-            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余重试: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retry: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, prov_name, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -2014,30 +1997,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
-            // PIN from cache
-            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, prov_name, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -2195,30 +2164,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
-            // PIN from cache
-            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, prov_name, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -2603,30 +2558,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
-            // PIN from cache
-            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, prov_name, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -2691,6 +2632,8 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
@@ -2779,30 +2722,16 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
-            // PIN from cache
-            let pin_key = format!("{}/{}/{}", prov_name, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, prov_name, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -3044,29 +2973,17 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
             // Verify PIN
-            let pin_key = format!("{}/{}/{}", provider, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, provider, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
@@ -3153,29 +3070,17 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
             }
 
             // Verify PIN
-            let pin_key = format!("{}/{}/{}", provider, dev_name, app_name);
-            let pin_cached = {
-                let pins = ctx.pins.read().unwrap();
-                pins.get(&pin_key).cloned()
-            };
-            if let Some(pin_str) = pin_cached {
-                let c_pin = std::ffi::CString::new(pin_str.as_str()).unwrap();
-                let mut retry: ULONG = 0;
-                let ret = api.verify_pin(h_app, 1, c_pin.into_raw(), &mut retry);
-                if ret != SAR_OK {
-                    api.close_application(h_app);
-                    api.dis_connect_dev(h_dev);
-                    let msg = match lang {
-                        Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: {}", ret, retry),
-                        Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: {}", ret, retry),
-                    };
-                    return RpcResponse::err(ret as i32, msg, id);
-                }
-            } else {
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, provider, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);

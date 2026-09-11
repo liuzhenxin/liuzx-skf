@@ -34,6 +34,7 @@
 //! session state needs no `Mutex` or `RwLock`: exclusive access is already
 //! guaranteed. Only the registry, which is shared across connections, takes a lock.
 
+pub mod auth;
 pub mod registry;
 
 pub use registry::{SessionGuard, SessionRegistry};
@@ -105,28 +106,54 @@ impl SessionMarker {
 /// State owned exclusively by one connection, held **by value**.
 ///
 /// Nothing here needs interior mutability: `Session::handle` gives `&mut self`.
-/// Authorization and the handle table are added by plans 02-02 and 02-03.
+/// The handle table is added by plan 02-03.
 #[derive(Debug)]
 pub struct SessionState {
     id: SessionId,
+    auth: auth::AuthTable,
 }
 
 impl SessionState {
-    /// Create state for a fresh session.
-    pub fn new() -> Self {
+    /// Create state for a fresh session, using `ttl` as the authorization lifetime.
+    pub fn new(ttl: std::time::Duration) -> Self {
         Self {
             id: generate_session_id(),
+            auth: auth::AuthTable::new(ttl),
         }
     }
 
     pub fn id(&self) -> &SessionId {
         &self.id
     }
-}
 
-impl Default for SessionState {
-    fn default() -> Self {
-        Self::new()
+    /// Authorization grants held by this session.
+    pub fn auth(&self) -> &auth::AuthTable {
+        &self.auth
+    }
+
+    /// Record a successful PIN verification.
+    ///
+    /// Only a deadline is stored — never the PIN itself (SESS-05).
+    pub fn grant(&mut self, key: auth::AuthKey) {
+        self.auth.grant(key);
+    }
+
+    /// Confirm an authorization for one application, returning why it failed.
+    pub fn authorize(&mut self, key: &auth::AuthKey) -> Result<(), auth::AuthRejection> {
+        self.auth.check(key)
+    }
+
+    /// Clear authorization for one device after an operation found it missing.
+    ///
+    /// Called by the session that observed the failure, using its own `&mut`
+    /// access. The registry is deliberately not involved: a cross-session mutator
+    /// would require interior mutability here and would turn the registry into the
+    /// shared-state defect this phase exists to remove.
+    ///
+    /// Invalidation is therefore **detected on next use**, not instantaneous. That
+    /// is the trade-off chosen over a background device-event broadcast.
+    pub fn invalidate_device(&mut self, provider: &str, device: &str) -> usize {
+        self.auth.invalidate_device(provider, device)
     }
 }
 
@@ -162,10 +189,61 @@ mod tests {
         assert_eq!(seen.len(), 1000);
     }
 
+    fn ttl() -> std::time::Duration {
+        std::time::Duration::from_secs(600)
+    }
+
     #[test]
     fn session_state_exposes_its_id() {
-        let state = SessionState::new();
+        let state = SessionState::new(ttl());
         assert_eq!(state.id().as_str().len(), 32);
+    }
+
+    /// SESS-02's core property: authorization is a property of one session.
+    ///
+    /// Two sessions are independent values, so a grant in one is invisible to the
+    /// other. Before Phase 2 the grant lived in a process-wide map and this test
+    /// could not have been written.
+    #[test]
+    fn two_sessions_do_not_share_authorization() {
+        let key = auth::AuthKey::new("GM3000", "dev-a", "app");
+        let mut first = SessionState::new(ttl());
+        let mut second = SessionState::new(ttl());
+
+        first.grant(key.clone());
+
+        assert_eq!(first.authorize(&key), Ok(()));
+        assert_eq!(
+            second.authorize(&key),
+            Err(auth::AuthRejection::NotAuthorized),
+            "verifying a PIN in one session must not authorize another"
+        );
+    }
+
+    #[test]
+    fn session_clears_grant_when_device_reported_removed() {
+        let mut state = SessionState::new(ttl());
+        let key = auth::AuthKey::new("GM3000", "dev-a", "app");
+        state.grant(key.clone());
+
+        let removed = state.invalidate_device("GM3000", "dev-a");
+
+        assert_eq!(removed, 1);
+        assert_eq!(state.authorize(&key), Err(auth::AuthRejection::NotAuthorized));
+    }
+
+    #[test]
+    fn device_unavailable_invalidates_only_that_device() {
+        let mut state = SessionState::new(ttl());
+        let gone = auth::AuthKey::new("GM3000", "dev-a", "app");
+        let present = auth::AuthKey::new("GM3000", "dev-b", "app");
+        state.grant(gone.clone());
+        state.grant(present.clone());
+
+        state.invalidate_device("GM3000", "dev-a");
+
+        assert_eq!(state.authorize(&gone), Err(auth::AuthRejection::NotAuthorized));
+        assert_eq!(state.authorize(&present), Ok(()));
     }
 
     /// The session must be movable into a Tokio task. If session state is ever
