@@ -264,6 +264,14 @@ impl DeviceGuard for FakeDevice {
         self.inner.begin(Operation::SetLabel)
     }
 
+    fn begin_digest(&self, _alg_id: u32, _id: &[u8]) -> ProviderResult<Box<dyn DigestGuard>> {
+        self.inner.begin(Operation::DigestBegin)?;
+        Ok(Box::new(FakeDigest {
+            inner: std::sync::Arc::clone(&self.inner),
+            exposed: DigestHandle(self.inner.next_handle()),
+        }))
+    }
+
     fn open_application(&self, name: &str) -> ProviderResult<Box<dyn ApplicationGuard>> {
         self.inner.begin(Operation::OpenApplication)?;
         let _ = name;
@@ -503,7 +511,8 @@ mod tests {
         let provider = FakeSkfProvider::new("FAKE");
         provider.fail_next(Operation::DigestBegin, SkfError::SymbolUnavailable);
 
-        let result = provider.begin_digest();
+        let device = provider.open_device("dev-a").expect("open");
+        let result = device.begin_digest(0x00000001, b"");
         match result {
             Err(ProviderError::Injected(SkfError::SymbolUnavailable)) => {}
             other => panic!("expected SymbolUnavailable, got {:?}", other.err()),
@@ -560,10 +569,30 @@ mod tests {
         let provider = FakeSkfProvider::new("FAKE");
         provider.set_digest_output(vec![0xCD; 32]);
         {
-            let digest = provider.begin_digest().expect("begin");
+            let device = provider.open_device("dev-a").expect("open");
+            let digest = device.begin_digest(0x00000001, b"").expect("begin");
             digest.update(b"hello").expect("update");
             assert_eq!(digest.finalize().expect("finalize"), vec![0xCD; 32]);
         }
+        assert_eq!(provider.call_count(Operation::CloseDigest), 1);
+    }
+
+    /// Regression guard for review finding M-01.
+    ///
+    /// Before the fix, starting a digest required the concrete device type, so a
+    /// caller holding a `Box<dyn DeviceGuard>` — which is what
+    /// `SkfProvider::open_device` returns — could not reach the digest API at all.
+    #[test]
+    fn digest_can_be_started_through_a_trait_object_device() {
+        let provider = FakeSkfProvider::new("FAKE");
+        let device: Box<dyn DeviceGuard> = provider.open_device("dev-a").expect("open");
+
+        let digest = device
+            .begin_digest(0x00000001, b"")
+            .expect("a trait-object device must be able to start a digest");
+
+        assert!(digest.handle().0 >= FIRST_HANDLE);
+        drop(digest);
         assert_eq!(provider.call_count(Operation::CloseDigest), 1);
     }
 

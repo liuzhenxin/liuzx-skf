@@ -222,6 +222,17 @@ pub trait DeviceGuard: Send {
     fn info(&self) -> ProviderResult<DeviceInfo>;
     fn set_label(&self, label: &str) -> ProviderResult<()>;
     fn open_application(&self, name: &str) -> ProviderResult<Box<dyn ApplicationGuard>>;
+
+    /// Start a streaming digest, transferring ownership to the returned guard.
+    ///
+    /// Lives on the guard rather than as a free function taking a concrete device
+    /// type, because `SkfProvider::open_device` hands back `Box<dyn DeviceGuard>`
+    /// and a caller holding one must still be able to start a digest.
+    ///
+    /// `id` is the SM2 user identifier; it is ignored by algorithms that do not
+    /// use one. The SM2 public-key parameter the vendor API also accepts is not
+    /// exposed yet — no caller passes one.
+    fn begin_digest(&self, alg_id: u32, id: &[u8]) -> ProviderResult<Box<dyn DigestGuard>>;
 }
 
 /// An open application. Dropping the guard closes it.

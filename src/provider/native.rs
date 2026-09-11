@@ -25,7 +25,7 @@ use super::{
 use crate::config::SkfConfig;
 use crate::skf::api::SkfApi;
 use crate::skf::types::{
-    BLOCKCIPHERPARAM, BOOL, BYTE, CHAR, DEVHANDLE, DEVINFO, ECCPUBLICKEYBLOB, ECCSIGNATUREBLOB,
+    BLOCKCIPHERPARAM, BOOL, BYTE, CHAR, DEVHANDLE, DEVINFO, ECCSIGNATUREBLOB,
     HANDLE, HAPPLICATION, HCONTAINER, RSAPUBLICKEYBLOB, SAR_OK, SGD_SM3, ULONG,
 };
 
@@ -198,6 +198,29 @@ impl DeviceGuard for Arc<NativeDevice> {
         } else {
             Err(ProviderError::from_native(ret, "SetLabel"))
         }
+    }
+
+    fn begin_digest(&self, alg_id: u32, id: &[u8]) -> ProviderResult<Box<dyn DigestGuard>> {
+        let mut raw: HANDLE = std::ptr::null_mut();
+        let mut id_buf = id.to_vec();
+        let ret = self.api.digest_init(
+            self.raw as DEVHANDLE,
+            alg_id,
+            // No SM2 public key: the vendor API only needs one for the
+            // SM2-with-ID mode, which no caller uses yet.
+            std::ptr::null_mut(),
+            id_buf.as_mut_ptr() as *mut BYTE,
+            id_buf.len() as ULONG,
+            &mut raw,
+        );
+        if ret != SAR_OK {
+            return Err(ProviderError::from_native(ret, "DigestInit"));
+        }
+        Ok(Box::new(Arc::new(NativeDigest {
+            device: Arc::clone(self),
+            raw: raw as usize,
+            exposed: DigestHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
+        })))
     }
 
     fn open_application(&self, name: &str) -> ProviderResult<Box<dyn ApplicationGuard>> {
@@ -681,38 +704,6 @@ impl SkfProvider for NativeSkfProvider {
 
 /// Default digest algorithm used when a caller does not specify one.
 pub const DEFAULT_DIGEST_ALG: ULONG = SGD_SM3;
-
-/// Open a streaming digest on `device`, transferring ownership to the guard.
-///
-/// Kept as a free function rather than a `DeviceGuard` method so the guard trait
-/// stays free of algorithm parameters; Phase 2 can promote it if the domain layer
-/// prefers a method.
-pub fn begin_digest(
-    device: &Arc<NativeDevice>,
-    alg_id: ULONG,
-    public_key: Option<&ECCPUBLICKEYBLOB>,
-    id: &[u8],
-) -> ProviderResult<Box<dyn DigestGuard>> {
-    let mut raw: HANDLE = std::ptr::null_mut();
-    let mut id_buf = id.to_vec();
-    let ret = device.api.digest_init(
-        device.raw as DEVHANDLE,
-        alg_id,
-        public_key.map(|k| k as *const _ as *mut ECCPUBLICKEYBLOB)
-            .unwrap_or(std::ptr::null_mut()),
-        id_buf.as_mut_ptr() as *mut BYTE,
-        id_buf.len() as ULONG,
-        &mut raw,
-    );
-    if ret != SAR_OK {
-        return Err(ProviderError::from_native(ret, "DigestInit"));
-    }
-    Ok(Box::new(Arc::new(NativeDigest {
-        device: Arc::clone(device),
-        raw: raw as usize,
-        exposed: DigestHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
-    })))
-}
 
 /// Build an `RSAPUBLICKEYBLOB` view for verification calls.
 pub fn rsa_public_key_blob(
