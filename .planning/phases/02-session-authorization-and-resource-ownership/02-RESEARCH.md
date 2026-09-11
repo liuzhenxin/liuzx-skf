@@ -175,14 +175,27 @@
 
 推论：**一个连接 = 一个会话 = 独占访问**。会话自己拥有 `HashMap<String, Box<dyn XxxGuard>>` 即可，**不需要 `Mutex`/`RwLock`**。需要锁的只有跨连接共享的注册表。这比"给会话状态加锁"简单得多，也消除了嵌套锁的风险。
 
+### G-1b — 注册表只能引用轻量 marker，不能引用会话状态
+
+会话状态必然包含 `Box<dyn DeviceGuard>` 等 provider 守卫，它们是 `Send` 而**非** `Sync`（守卫 trait 只要求 `Send`）。因此：
+
+- `Arc<SessionState>` **不是 `Send`**，会话就无法移入 Tokio 任务；
+- 若为了让 `Arc<SessionState>` 变成 `Send + Sync` 而加 `unsafe impl Sync for SessionState`，会违反 D-22（全 crate 仅一处 `unsafe impl Send/Sync`）。
+
+**结论：** 注册表存 `Weak<SessionMarker>`（`SessionMarker` 只含 `SessionId`，天然 `Send + Sync`），`SessionState` 由 `SessionGuard` **按值**持有。这样 `SessionGuard: Send` 成立、会话可移入任务、且不需要任何新的 `unsafe impl`。
+
+**这条推论必须由测试固化**：`assert_send::<SessionGuard>()`。否则将来有人把状态改回 `Arc` 会静默破坏可移动性。
+
 ### G-2 — 注册表的接口必须窄
 
 D-04b 要求它不能成为新的全局缺陷。建议只暴露两个操作：
 
-- `register() -> SessionId`（工厂创建会话时）
-- `invalidate_for_device(provider, device)`（设备不可用时，唯一的跨会话操作）
+- `register()`（工厂创建会话时）与随 `SessionGuard` drop 的注销
+- `session_count() -> usize`（仅诊断计数）
 
-**不要**提供 `get(id)` 或"列出所有会话"给领域层。诊断计数可以通过一个只返回 `usize` 的方法实现，避免泄露会话身份。
+**不要**提供 `get(id)`、"列出所有会话"，**也不要**提供任何跨会话修改入口。
+
+**为什么没有 `invalidate_for_device`（设计修订）：** 曾考虑用它把"设备拔出"广播到受影响会话，但那需要注册表持有 `Weak<SessionState>` 后修改其内部状态，从而给会话状态引入 `Mutex` —— 与 G-1（`&mut self` 已足够）冲突，并把注册表变成"换名字的共享状态缺陷"（D-04b）。改为**由观察到失败的会话自己清除自己的授权条目**：会话在该路径上持有 `&mut`，无需锁，注册表保持无副作用。代价是失效为"下次使用时发现"而非实时——这正是 D-09 已选择的取舍。
 
 ### G-3 — 句柄表的类型编码
 
