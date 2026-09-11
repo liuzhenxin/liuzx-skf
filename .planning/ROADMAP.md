@@ -29,12 +29,13 @@ v0.3.0 将当前可运行但未加固的服务转变为可验证、可运维的�
   3. All SKF operations are reached through a provider abstraction whose fake implementation can be configured to inject wrong PIN, missing container, missing symbol, device removal, and a blocking call
   4. Pure encoding logic (DER, subject DN, SPKI, base64/hex) has tests that run without hardware or OpenSSL
   5. The Windows i686 build still produces `skf-service.exe` with `Machine=0x014C` after the split
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01: 录制并冻结 v0.2.0 契约夹具（重构前完成，含 oracle 自检）
+- [ ] 01-02: library crate 拆分与纯逻辑提取（crypto/、config/ 单测）
+- [ ] 01-03: SKF provider 抽象与可注入失败的 fake（含不变量测试）
+- [ ] 01-04: provider 注入、临时端口服务器、端到端契约重放与 Windows 构建验证
 
 ### Phase 2: Session Authorization and Resource Ownership
 **Goal**: 消除共享凭据与客户端可控原生句柄两个最严重缺陷：授权按会话隔离并自动失效，所有原生资源有明确归属和确定性释放。
@@ -126,7 +127,7 @@ Phase 5 is file-disjoint from Phases 2-4 and may be executed in parallel if sche
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Structural Foundation and Test Seam | 0/3 | Not started | - |
+| 1. Structural Foundation and Test Seam | 0/4 | Planned    |  |
 | 2. Session Authorization and Resource Ownership | 0/3 | Not started | - |
 | 3. Transport Hardening and Concurrency | 0/2 | Not started | - |
 | 4. Format/Lint Normalization and CI Gate | 0/2 | Not started | - |
