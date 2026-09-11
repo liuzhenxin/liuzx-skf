@@ -130,57 +130,57 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | TBD | Pending |
-| FOUND-02 | TBD | Pending |
-| FOUND-03 | TBD | Pending |
-| FOUND-04 | TBD | Pending |
-| FOUND-05 | TBD | Pending |
-| FOUND-06 | TBD | Pending |
-| SESS-01 | TBD | Pending |
-| SESS-02 | TBD | Pending |
-| SESS-03 | TBD | Pending |
-| SESS-04 | TBD | Pending |
-| SESS-05 | TBD | Pending |
-| SESS-06 | TBD | Pending |
-| RES-01 | TBD | Pending |
-| RES-02 | TBD | Pending |
-| RES-03 | TBD | Pending |
-| RES-04 | TBD | Pending |
-| RES-05 | TBD | Pending |
-| TRANS-01 | TBD | Pending |
-| TRANS-02 | TBD | Pending |
-| TRANS-03 | TBD | Pending |
-| TRANS-04 | TBD | Pending |
-| TRANS-05 | TBD | Pending |
-| TRANS-06 | TBD | Pending |
-| TRANS-07 | TBD | Pending |
-| QUAL-01 | TBD | Pending |
-| QUAL-02 | TBD | Pending |
-| QUAL-03 | TBD | Pending |
-| QUAL-04 | TBD | Pending |
-| SVC-01 | TBD | Pending |
-| SVC-02 | TBD | Pending |
-| SVC-03 | TBD | Pending |
-| SVC-04 | TBD | Pending |
-| SVC-05 | TBD | Pending |
-| OBS-01 | TBD | Pending |
-| OBS-02 | TBD | Pending |
-| OBS-03 | TBD | Pending |
-| OBS-04 | TBD | Pending |
-| REL-01 | TBD | Pending |
-| REL-02 | TBD | Pending |
-| REL-03 | TBD | Pending |
-| REL-04 | TBD | Pending |
-| REL-05 | TBD | Pending |
-| DOC-01 | TBD | Pending |
-| DOC-02 | TBD | Pending |
-| DOC-03 | TBD | Pending |
+| FOUND-01 | Phase 1 | Pending |
+| FOUND-02 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Pending |
+| FOUND-05 | Phase 1 | Pending |
+| FOUND-06 | Phase 1 | Pending |
+| SESS-01 | Phase 2 | Pending |
+| SESS-02 | Phase 2 | Pending |
+| SESS-03 | Phase 2 | Pending |
+| SESS-04 | Phase 2 | Pending |
+| SESS-05 | Phase 2 | Pending |
+| SESS-06 | Phase 2 | Pending |
+| RES-01 | Phase 2 | Pending |
+| RES-02 | Phase 2 | Pending |
+| RES-03 | Phase 2 | Pending |
+| RES-04 | Phase 2 | Pending |
+| RES-05 | Phase 2 | Pending |
+| TRANS-01 | Phase 3 | Pending |
+| TRANS-02 | Phase 3 | Pending |
+| TRANS-03 | Phase 3 | Pending |
+| TRANS-04 | Phase 3 | Pending |
+| TRANS-05 | Phase 3 | Pending |
+| TRANS-06 | Phase 3 | Pending |
+| TRANS-07 | Phase 3 | Pending |
+| QUAL-01 | Phase 4 | Pending |
+| QUAL-02 | Phase 4 | Pending |
+| QUAL-03 | Phase 4 | Pending |
+| QUAL-04 | Phase 4 | Pending |
+| SVC-01 | Phase 5 | Pending |
+| SVC-02 | Phase 5 | Pending |
+| SVC-03 | Phase 5 | Pending |
+| SVC-04 | Phase 5 | Pending |
+| SVC-05 | Phase 5 | Pending |
+| OBS-01 | Phase 6 | Pending |
+| OBS-02 | Phase 6 | Pending |
+| OBS-03 | Phase 6 | Pending |
+| OBS-04 | Phase 6 | Pending |
+| REL-01 | Phase 6 | Pending |
+| REL-02 | Phase 6 | Pending |
+| REL-03 | Phase 6 | Pending |
+| REL-04 | Phase 6 | Pending |
+| REL-05 | Phase 6 | Pending |
+| DOC-01 | Phase 6 | Pending |
+| DOC-02 | Phase 6 | Pending |
+| DOC-03 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 44 total
-- Mapped to phases: 0
-- Unmapped: 44 ⚠️ (expected — roadmap creation fills this in)
+- v1 requirements: 45 total
+- Mapped to phases: 45
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-09-11*
-*Last updated: 2026-09-11 after v0.3.0 research*
+*Last updated: 2026-09-11 after v0.3.0 roadmap creation*
