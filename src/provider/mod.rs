@@ -48,6 +48,27 @@ pub struct ContainerHandle(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DigestHandle(pub u64);
 
+/// An SM2 (ECC) public key produced by [`ContainerGuard::gen_ecc_key_pair`].
+///
+/// The coordinates are the raw vendor arrays (64 bytes each, right-aligned);
+/// formatting for the wire is the caller's job, exactly as it was before the
+/// migration. This is a value type, not a handle: it owns no native resource.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EccPublicKey {
+    pub bit_len: u32,
+    pub x: Vec<u8>,
+    pub y: Vec<u8>,
+}
+
+/// An RSA public key produced by [`ContainerGuard::gen_rsa_key_pair`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RsaPublicKey {
+    pub alg_id: u32,
+    pub bit_len: u32,
+    pub modulus: Vec<u8>,
+    pub exponent: Vec<u8>,
+}
+
 /// Every provider operation that can be individually observed.
 ///
 /// Used for two purposes: recording the call sequence (so tests can assert that
@@ -209,6 +230,12 @@ pub type ProviderResult<T> = Result<T, ProviderError>;
 pub struct PinOutcome {
     pub success: bool,
     pub retry_count: u32,
+    /// The raw vendor return code.
+    ///
+    /// `CheckPIN` embeds this in its failure message exactly as before the
+    /// migration, so a rejected PIN must carry it rather than flatten it to a
+    /// boolean.
+    pub code: u32,
 }
 
 /// A device resource. Dropping the guard releases the native handle.
@@ -233,6 +260,19 @@ pub trait DeviceGuard: Send {
     /// use one. The SM2 public-key parameter the vendor API also accepts is not
     /// exposed yet — no caller passes one.
     fn begin_digest(&self, alg_id: u32, id: &[u8]) -> ProviderResult<Box<dyn DigestGuard>>;
+
+    /// Start a digest that needs the SM2 public key as well as the user id.
+    ///
+    /// The vendor `DigestInit` mixes the public key into the SM2 `Z` value when
+    /// the algorithm is SM2-with-ID; the plain [`DeviceGuard::begin_digest`]
+    /// passes a null key, which is only correct for the non-SM2 algorithms. The
+    /// key is a value, not a handle, so it can cross the boundary.
+    fn begin_digest_with_key(
+        &self,
+        alg_id: u32,
+        id: &[u8],
+        public_key: &EccPublicKey,
+    ) -> ProviderResult<Box<dyn DigestGuard>>;
 }
 
 /// An open application. Dropping the guard closes it.
@@ -242,6 +282,12 @@ pub trait ApplicationGuard: Send {
     fn verify_pin(&self, pin: &str) -> ProviderResult<PinOutcome>;
     fn open_container(&self, name: &str) -> ProviderResult<Box<dyn ContainerGuard>>;
     fn delete_container(&self, name: &str) -> ProviderResult<()>;
+
+    /// Create a container, transferring ownership to the returned guard.
+    ///
+    /// Added in Phase 2 plan 02-04 so `CreateContainer` and `CreatePKCS10` can
+    /// move off the direct `SkfApi` path. Dropping the guard closes the container.
+    fn create_container(&self, name: &str) -> ProviderResult<Box<dyn ContainerGuard>>;
 }
 
 /// An open container. Dropping the guard closes it.
@@ -252,6 +298,12 @@ pub trait ContainerGuard: Send {
     fn import_certificate(&self, sign_flag: bool, cert: &[u8]) -> ProviderResult<()>;
     fn sign_ecc(&self, digest: &[u8]) -> ProviderResult<Vec<u8>>;
     fn sign_rsa(&self, data: &[u8]) -> ProviderResult<Vec<u8>>;
+
+    /// Generate an SM2 key pair inside this container.
+    fn gen_ecc_key_pair(&self, alg_id: u32) -> ProviderResult<EccPublicKey>;
+
+    /// Generate an RSA key pair of `bits` length inside this container.
+    fn gen_rsa_key_pair(&self, bits: u32) -> ProviderResult<RsaPublicKey>;
     fn set_symm_key(&self, alg_id: u32, key: &[u8]) -> ProviderResult<()>;
     fn encrypt(&self, alg_id: u32, iv: &[u8], padding: u32, data: &[u8]) -> ProviderResult<Vec<u8>>;
     fn decrypt(&self, alg_id: u32, iv: &[u8], padding: u32, data: &[u8]) -> ProviderResult<Vec<u8>>;

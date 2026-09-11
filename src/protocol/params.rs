@@ -56,6 +56,15 @@ impl<'a> Params<'a> {
         self.values.get(index)
     }
 
+    /// The request id, cloned.
+    ///
+    /// Handlers need the id for their own (non-helper) responses, exactly as they
+    /// did before migration. It is stored here so every rejection stays
+    /// correlatable.
+    pub fn id(&self) -> Option<Value> {
+        self.id.clone()
+    }
+
     /// A required string.
     ///
     /// Missing **or wrongly typed** is an error, matching the inline code that used

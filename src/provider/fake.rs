@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use super::{
     AppHandle, ApplicationGuard, ContainerGuard, ContainerHandle, DeviceGuard, DeviceHandle,
-    DeviceInfo, DigestGuard, DigestHandle, Operation, PinOutcome, ProviderError, ProviderResult,
-    SkfError, SkfProvider,
+    DeviceInfo, DigestGuard, DigestHandle, EccPublicKey, Operation, PinOutcome, ProviderError,
+    ProviderResult, RsaPublicKey, SkfError, SkfProvider,
 };
 
 /// First synthetic handle value. Chosen well above any plausible device index so
@@ -272,6 +272,17 @@ impl DeviceGuard for FakeDevice {
         }))
     }
 
+    fn begin_digest_with_key(
+        &self,
+        alg_id: u32,
+        id: &[u8],
+        _public_key: &EccPublicKey,
+    ) -> ProviderResult<Box<dyn DigestGuard>> {
+        // The key only changes the SM2 `Z` mixing, which the fake does not model;
+        // the call is still recorded so a release test can observe it.
+        self.begin_digest(alg_id, id)
+    }
+
     fn open_application(&self, name: &str) -> ProviderResult<Box<dyn ApplicationGuard>> {
         self.inner.begin(Operation::OpenApplication)?;
         let _ = name;
@@ -310,14 +321,17 @@ impl ApplicationGuard for FakeApplication {
             Ok(()) => Ok(PinOutcome {
                 success: true,
                 retry_count: 3,
+                code: 0,
             }),
             Err(ProviderError::Injected(SkfError::PinIncorrect)) => Ok(PinOutcome {
                 success: false,
                 retry_count: 2,
+                code: 0x0A00_002F,
             }),
             Err(ProviderError::Injected(SkfError::PinLocked)) => Ok(PinOutcome {
                 success: false,
                 retry_count: 0,
+                code: 0x0A00_0030,
             }),
             Err(other) => Err(other),
         }
@@ -333,6 +347,14 @@ impl ApplicationGuard for FakeApplication {
 
     fn delete_container(&self, _name: &str) -> ProviderResult<()> {
         self.inner.begin(Operation::DeleteContainer)
+    }
+
+    fn create_container(&self, _name: &str) -> ProviderResult<Box<dyn ContainerGuard>> {
+        self.inner.begin(Operation::CreateContainer)?;
+        Ok(Box::new(FakeContainer {
+            inner: std::sync::Arc::clone(&self.inner),
+            exposed: ContainerHandle(self.inner.next_handle()),
+        }))
     }
 }
 
@@ -375,6 +397,25 @@ impl ContainerGuard for FakeContainer {
     fn sign_rsa(&self, _data: &[u8]) -> ProviderResult<Vec<u8>> {
         self.inner.begin(Operation::SignRsa)?;
         Ok(vec![0x22; 256])
+    }
+
+    fn gen_ecc_key_pair(&self, _alg_id: u32) -> ProviderResult<EccPublicKey> {
+        self.inner.begin(Operation::GenEccKeyPair)?;
+        Ok(EccPublicKey {
+            bit_len: 256,
+            x: vec![0x11; 64],
+            y: vec![0x22; 64],
+        })
+    }
+
+    fn gen_rsa_key_pair(&self, bits: u32) -> ProviderResult<RsaPublicKey> {
+        self.inner.begin(Operation::GenRsaKeyPair)?;
+        Ok(RsaPublicKey {
+            alg_id: 0,
+            bit_len: bits,
+            modulus: vec![0x33; 256],
+            exponent: vec![0x01, 0x00, 0x01, 0x00],
+        })
     }
 
     fn set_symm_key(&self, _alg_id: u32, _key: &[u8]) -> ProviderResult<()> {

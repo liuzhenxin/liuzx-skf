@@ -20,13 +20,14 @@ use libloading::Library;
 
 use super::{
     AppHandle, ApplicationGuard, ContainerGuard, ContainerHandle, DeviceGuard, DeviceHandle,
-    DeviceInfo, DigestGuard, DigestHandle, PinOutcome, ProviderError, ProviderResult, SkfProvider,
+    DeviceInfo, DigestGuard, DigestHandle, EccPublicKey, PinOutcome, ProviderError, ProviderResult,
+    RsaPublicKey, SkfProvider,
 };
 use crate::config::SkfConfig;
 use crate::skf::api::SkfApi;
 use crate::skf::types::{
-    BLOCKCIPHERPARAM, BOOL, BYTE, CHAR, DEVHANDLE, DEVINFO, ECCSIGNATUREBLOB,
-    HANDLE, HAPPLICATION, HCONTAINER, RSAPUBLICKEYBLOB, SAR_OK, SGD_SM3, ULONG,
+    BLOCKCIPHERPARAM, BOOL, BYTE, CHAR, DEVHANDLE, DEVINFO, ECCPUBLICKEYBLOB,
+    ECCSIGNATUREBLOB, HANDLE, HAPPLICATION, HCONTAINER, RSAPUBLICKEYBLOB, SAR_OK, SGD_SM3, ULONG,
 };
 
 /// Largest device-name buffer the vendor API is given.
@@ -201,26 +202,20 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn begin_digest(&self, alg_id: u32, id: &[u8]) -> ProviderResult<Box<dyn DigestGuard>> {
-        let mut raw: HANDLE = std::ptr::null_mut();
-        let mut id_buf = id.to_vec();
-        let ret = self.api.digest_init(
-            self.raw as DEVHANDLE,
-            alg_id,
-            // No SM2 public key: the vendor API only needs one for the
-            // SM2-with-ID mode, which no caller uses yet.
-            std::ptr::null_mut(),
-            id_buf.as_mut_ptr() as *mut BYTE,
-            id_buf.len() as ULONG,
-            &mut raw,
-        );
-        if ret != SAR_OK {
-            return Err(ProviderError::from_native(ret, "DigestInit"));
-        }
-        Ok(Box::new(Arc::new(NativeDigest {
-            device: Arc::clone(self),
-            raw: raw as usize,
-            exposed: DigestHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
-        })))
+        self.begin_digest_impl(alg_id, id, std::ptr::null_mut())
+    }
+
+    fn begin_digest_with_key(
+        &self,
+        alg_id: u32,
+        id: &[u8],
+        public_key: &EccPublicKey,
+    ) -> ProviderResult<Box<dyn DigestGuard>> {
+        // SM2-with-ID needs the public key to compute the `Z` value; the plain
+        // `begin_digest` passes a null key, which the vendor API ignores for the
+        // algorithms that do not use one.
+        let mut key = ecc_blob(public_key);
+        self.begin_digest_impl(alg_id, id, &mut key as *mut ECCPUBLICKEYBLOB)
     }
 
     fn open_application(&self, name: &str) -> ProviderResult<Box<dyn ApplicationGuard>> {
@@ -242,6 +237,34 @@ impl DeviceGuard for Arc<NativeDevice> {
 }
 
 impl NativeDevice {
+    /// Shared body of [`DeviceGuard::begin_digest`] and
+    /// [`DeviceGuard::begin_digest_with_key`].
+    fn begin_digest_impl(
+        self: &Arc<Self>,
+        alg_id: u32,
+        id: &[u8],
+        public_key: *mut ECCPUBLICKEYBLOB,
+    ) -> ProviderResult<Box<dyn DigestGuard>> {
+        let mut raw: HANDLE = std::ptr::null_mut();
+        let mut id_buf = id.to_vec();
+        let ret = self.api.digest_init(
+            self.raw as DEVHANDLE,
+            alg_id,
+            public_key,
+            id_buf.as_mut_ptr() as *mut BYTE,
+            id_buf.len() as ULONG,
+            &mut raw,
+        );
+        if ret != SAR_OK {
+            return Err(ProviderError::from_native(ret, "DigestInit"));
+        }
+        Ok(Box::new(Arc::new(NativeDigest {
+            device: Arc::clone(self),
+            raw: raw as usize,
+            exposed: DigestHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
+        })))
+    }
+
     /// Handles for nested resources come from the same counter as device handles,
     /// so a container id can never collide with a device id.
     fn next_child_handle(&self) -> u64 {
@@ -305,6 +328,7 @@ impl ApplicationGuard for Arc<NativeApplication> {
         Ok(PinOutcome {
             success: ret == SAR_OK,
             retry_count,
+            code: ret,
         })
     }
 
@@ -336,6 +360,24 @@ impl ApplicationGuard for Arc<NativeApplication> {
         } else {
             Err(ProviderError::from_native(ret, "DeleteContainer"))
         }
+    }
+
+    fn create_container(&self, name: &str) -> ProviderResult<Box<dyn ContainerGuard>> {
+        let c_name = cstring(name, "CreateContainer")?;
+        let mut raw: HCONTAINER = std::ptr::null_mut();
+        let ret = self.device.api.create_container(
+            self.raw as DEVHANDLE,
+            c_name.as_ptr() as *mut CHAR,
+            &mut raw,
+        );
+        if ret != SAR_OK {
+            return Err(ProviderError::from_native(ret, "CreateContainer"));
+        }
+        Ok(Box::new(Arc::new(NativeContainer {
+            application: Arc::clone(self),
+            raw: raw as usize,
+            exposed: ContainerHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
+        })))
     }
 }
 
@@ -422,6 +464,42 @@ impl ContainerGuard for Arc<NativeContainer> {
         out.extend_from_slice(&signature.r);
         out.extend_from_slice(&signature.s);
         Ok(out)
+    }
+
+    fn gen_ecc_key_pair(&self, alg_id: u32) -> ProviderResult<EccPublicKey> {
+        let mut blob: ECCPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
+        blob.BitLen = 256;
+        let ret = self
+            .application
+            .device
+            .api
+            .gen_ecc_key_pair(self.raw as DEVHANDLE, alg_id, &mut blob);
+        if ret != SAR_OK {
+            return Err(ProviderError::from_native(ret, "GenECCKeyPair"));
+        }
+        Ok(EccPublicKey {
+            bit_len: blob.BitLen,
+            x: blob.XCoordinate.to_vec(),
+            y: blob.YCoordinate.to_vec(),
+        })
+    }
+
+    fn gen_rsa_key_pair(&self, bits: u32) -> ProviderResult<RsaPublicKey> {
+        let mut blob: RSAPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
+        let ret = self
+            .application
+            .device
+            .api
+            .gen_rsa_key_pair(self.raw as DEVHANDLE, bits, &mut blob);
+        if ret != SAR_OK {
+            return Err(ProviderError::from_native(ret, "GenRSAKeyPair"));
+        }
+        Ok(RsaPublicKey {
+            alg_id: blob.AlgID,
+            bit_len: blob.BitLen,
+            modulus: blob.Modulus.to_vec(),
+            exponent: blob.PublicExponent.to_vec(),
+        })
     }
 
     fn sign_rsa(&self, data: &[u8]) -> ProviderResult<Vec<u8>> {
@@ -512,6 +590,18 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 }
 
+/// Materialise a provider [`EccPublicKey`] as the native blob `DigestInit` and
+/// the SPKI builders expect.
+fn ecc_blob(key: &EccPublicKey) -> ECCPUBLICKEYBLOB {
+    let mut blob: ECCPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
+    blob.BitLen = key.bit_len;
+    let x_len = key.x.len().min(blob.XCoordinate.len());
+    blob.XCoordinate[..x_len].copy_from_slice(&key.x[..x_len]);
+    let y_len = key.y.len().min(blob.YCoordinate.len());
+    blob.YCoordinate[..y_len].copy_from_slice(&key.y[..y_len]);
+    blob
+}
+
 /// Build a `BLOCKCIPHERPARAM` from an IV and padding selector.
 fn block_cipher_param(iv: &[u8], padding: u32) -> BLOCKCIPHERPARAM {
     let mut param: BLOCKCIPHERPARAM = unsafe { std::mem::zeroed() };
@@ -599,6 +689,20 @@ impl NativeSkfProvider {
             api: Arc::new(SkfApi::new(lib)),
             next_handle: AtomicU64::new(1),
         })
+    }
+
+    /// Wrap an already-loaded library as a provider for `alias`.
+    ///
+    /// Used by the binary's alias resolver for non-default providers: the library
+    /// is loaded (and cached) once by the context, and this adapter re-expresses
+    /// it through the provider trait so every migrated handler takes the same
+    /// path. It does not load a library itself.
+    pub fn from_api(alias: impl Into<String>, api: Arc<SkfApi>) -> Self {
+        Self {
+            alias: alias.into(),
+            api,
+            next_handle: AtomicU64::new(1),
+        }
     }
 
     /// Build a provider for `alias` using its configured path for this OS.
