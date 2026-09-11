@@ -21,7 +21,7 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 - [x] **SESS-01**: Each client connection is assigned a unique, unguessable session identity
 - [x] **SESS-02**: Authorization obtained by a successful PIN verification is usable only by the session that performed it, never by another concurrent session
 - [x] **SESS-03**: A session's authorization expires after a documented, configurable interval
-- [ ] **SESS-04**: A session's authorization is cleared when its connection closes and when the referenced device is removed
+- [x] **SESS-04**: A session's authorization is cleared when its connection closes and when the referenced device is removed
 - [x] **SESS-05**: After PIN verification completes the service retains no recoverable copy of the PIN value
 - [x] **SESS-06**: An operation requiring authorization fails with a stable error code when the requesting session is not authorized
 
@@ -139,7 +139,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SESS-01 | Phase 2 | Complete |
 | SESS-02 | Phase 2 | Complete |
 | SESS-03 | Phase 2 | Complete |
-| SESS-04 | Phase 2 | Pending |
+| SESS-04 | Phase 2 | Complete |
 | SESS-05 | Phase 2 | Complete |
 | SESS-06 | Phase 2 | Complete |
 | RES-01 | Phase 2 | Complete |
