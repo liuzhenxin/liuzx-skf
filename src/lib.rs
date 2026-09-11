@@ -10,6 +10,7 @@
 //! |--------|--------|
 //! | [`crypto`] | Extracted from `main.rs` (pure encoding helpers) |
 //! | [`config`] | Configuration load, `%VAR%` expansion, provider path resolution |
+//! | [`provider`] | Provider abstraction over the SKF C ABI (native + fake) |
 //! | [`skf`] | SKF C ABI adapter (unchanged) |
 //!
 //! Still owned by the binary crate and scheduled for later phases:
@@ -18,4 +19,5 @@
 
 pub mod config;
 pub mod crypto;
+pub mod provider;
 pub mod skf;

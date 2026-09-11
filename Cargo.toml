@@ -3,6 +3,11 @@ name = "skf-service"
 version = "0.2.0"
 edition = "2021"
 
+[features]
+default = []
+# Compiles the in-memory provider used by tests. Kept out of release builds.
+test-provider = []
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.21"
@@ -27,3 +32,8 @@ windows-service = "0.7"
 # Used to redirect stdout/stderr to a log file when running as a service.
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
+[dev-dependencies]
+# Integration tests live in their own crates, so `cfg(test)` does not reach them.
+# Depending on ourselves with the feature enabled is the supported way to give
+# tests access to the fake provider without shipping it.
+skf-service = { path = ".", features = ["test-provider"] }
