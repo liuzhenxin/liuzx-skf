@@ -38,11 +38,14 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - ✓ 每个客户端会话拥有独立授权状态（`OsRng` 会话 ID、TTL 由 `SKF_AUTH_TTL_SECONDS` 控制），断开/超时/设备不可用三条路径都会清除授权，且不保留可恢复的明文 PIN — Phase 2（`src/session/`、`cargo test session`）
 - ✓ 客户端只接触服务生成的不透明句柄（`dev-N`/`app-N`/`cnt-N`/`hsh-N`）；伪造整数、未知、过期或类型错误的句柄一律被拒 — Phase 2（`src/session/handles.rs`、`tests/session_isolation.rs`）
 - ✓ 设备、应用、容器和流式摘要资源通过守卫 RAII 在成功、原生错误、断连和会话结束场景确定性释放 — Phase 2（`src/domain/`、`tests/session_lifecycle.rs`）
+- ✓ 协议入口限制帧（1 MiB）、载荷（256 KiB，decode 前）与并发连接（64），非 wait 请求有 30s 超时 — Phase 3（`tests/transport_limits.rs`、`tests/ffi_serialization.rs`）
+- ✓ 阻塞厂商调用（含守卫析构）通过每请求 `spawn_blocking` 执行在阻塞池上，async worker 不再被占用 — Phase 3（`src/main.rs`、`src/provider/native.rs`）
+- ✓ 同一 provider 库的原生调用由一把全局锁串行化，wait/cancel 显式豁免；全 crate 仍仅各一处 `unsafe impl Send/Sync` — Phase 3（`tests/ffi_serialization.rs`、`tests/provider_invariants.rs`）
+- ✓ 非回环 WebSocket 绑定在 `bind` 前被拒，除非 YAML `allow_remote` 或 `SKF_ALLOW_REMOTE` 显式 opt-in — Phase 3（`tests/loopback_gate.rs`）
+- ✓ 全部 37 个方法具有只读/破坏性分类与文档，且不接入请求路径 — Phase 3（`src/domain/classification.rs`、`docs/OPERATION-CLASSIFICATION.md`）
 
 ### Active
 
-- [ ] 协议入口限制连接、帧、载荷、并发和执行时间，并区分只读与危险操作
-- [ ] SKF 调用通过清晰的 provider/worker 边界执行，阻塞厂商调用不会占满 Tokio 异步工作线程
 - [ ] 核心协议和业务流程可以使用 Fake SKF 后端在无硬件 CI 中确定性测试
 - [ ] Windows SCM 仅在监听器就绪后报告 Running，启动失败返回非零状态并触发恢复策略
 - [ ] 操作员可以通过不泄露敏感信息的健康诊断了解配置、端口、provider 和驱动状态
@@ -64,10 +67,10 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - 代码库地图位于 `.planning/codebase/`；`src/main.rs` 现已收缩为组合根 + `Session` 实现 + 14 个未迁移分支（约 1,990 行），19 个安全相关分支已迁入 `src/domain/`，协议类型与类型化参数提取在 `src/protocol/`。
 - 一个进程级 `Arc<SkfContext>` 被所有 WebSocket 连接共享，但只保留 `config`、`provider` 与已加载库缓存；明文 PIN 与流式哈希句柄缓存已按会话迁移到 `SessionState`。
 - FFI 边界由 `src/skf/api.rs` 与 `src/skf/types.rs` 提供，依赖厂商 C ABI、原始指针和若干显式安全假设。
-- 当前 `cargo test` 运行零个 Rust 测试；Node 集成脚本依赖真实设备、驱动、PIN 和 OpenSSL，无法作为普通 Pull Request CI。
+- Phase 3 后，每个请求的 dispatcher 整体运行在 Tokio 阻塞池上，厂商调用与守卫析构都不占用 async worker；所有经守卫的 native 调用共享一把每 provider 全局锁（wait/cancel 豁免），非 wait 请求有 30s 超时。当前 `cargo test` 运行 133 个 Rust 测试。
+- 当前网络 API没有传输认证；服务模式默认回环地址是重要的临时安全边界（Phase 3 已将非回环绑定改为显式 opt-in）。
 - Windows Release 工作流能构建并检查架构，但尚未自动验证服务安装、启动就绪、停止、升级或卸载。
 - `IssueCertificate(double=true)` 的测试加密证书目前不保证与生成的加密私钥匹配，不应视为生产证书流程。
-- 当前网络 API没有传输认证；服务模式默认回环地址是重要的临时安全边界。
 
 ## Constraints
 
@@ -109,4 +112,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-11 after Phase 2 (Session Authorization and Resource Ownership)*
+*Last updated: 2026-09-11 after Phase 3 (Transport Hardening and Concurrency)*
