@@ -10,8 +10,8 @@
     "id": 1
   },
   "response": {
-    "error": 167772166,
-    "message": "DisControlDev failed",
+    "error": -11,
+    "message": "Invalid or expired handle",
     "id": 1
   },
   "normalize": {},
@@ -30,6 +30,8 @@
     ],
     "volatile_fields_reviewed": true,
     "volatile_reasons": {},
-    "recording_note": "client rejected: DisControlDev failed"
+    "recording_note": "INTENTIONAL CONTRACT CHANGE (Phase 2, RES-01). The recorded response was the pre-refactor behaviour for params[0]=1: the integer was converted straight to a native DEVHANDLE and handed to the vendor library, which answered 0x0A000026 'DisControlDev failed'. A client-supplied integer is no longer accepted as a handle at all, so the request is rejected before reaching the vendor library. This is the defect RES-01 exists to remove; the new response is the contract.",
+    "contract_changed_at": "2026-09-11",
+    "contract_changed_by": "02-03"
   }
 }

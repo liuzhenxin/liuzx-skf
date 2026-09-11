@@ -35,6 +35,7 @@
 //! guaranteed. Only the registry, which is shared across connections, takes a lock.
 
 pub mod auth;
+pub mod handles;
 pub mod registry;
 
 pub use registry::{SessionGuard, SessionRegistry};
@@ -101,16 +102,17 @@ impl SessionMarker {
     pub fn id(&self) -> &SessionId {
         &self.id
     }
+
 }
 
 /// State owned exclusively by one connection, held **by value**.
 ///
 /// Nothing here needs interior mutability: `Session::handle` gives `&mut self`.
-/// The handle table is added by plan 02-03.
 #[derive(Debug)]
 pub struct SessionState {
     id: SessionId,
     auth: auth::AuthTable,
+    handles: handles::HandleTable,
 }
 
 impl SessionState {
@@ -119,11 +121,26 @@ impl SessionState {
         Self {
             id: generate_session_id(),
             auth: auth::AuthTable::new(ttl),
+            handles: handles::HandleTable::new(),
         }
     }
 
     pub fn id(&self) -> &SessionId {
         &self.id
+    }
+
+    /// Native resources owned by this session.
+    ///
+    /// Dropping the session drops the table, which drops every guard and releases
+    /// the underlying resource — that is what makes release on disconnect
+    /// deterministic rather than best-effort.
+    pub fn handles(&self) -> &handles::HandleTable {
+        &self.handles
+    }
+
+    /// Native resources owned by this session, mutably.
+    pub fn handles_mut(&mut self) -> &mut handles::HandleTable {
+        &mut self.handles
     }
 
     /// Authorization grants held by this session.

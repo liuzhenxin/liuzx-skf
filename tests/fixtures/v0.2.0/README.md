@@ -121,6 +121,20 @@ no response was produced.
 Because of that timing dependence, the end-to-end replay treats
 `WaitForDevEvent` as a shape check rather than a strict value comparison.
 
+## Intentional contract changes
+
+A recorded response is the *old* behaviour. When a change is deliberate, the fixture
+is updated **and** the change is recorded here and in
+`provenance.recording_note`. Widening `normalize` to hide it is never acceptable.
+
+| Method | Changed by | What changed and why |
+|--------|-----------|----------------------|
+| `DisConnectDev` | Phase 2 (02-03, RES-01) | With `params[0] = 1` the pre-refactor code converted the integer straight to a native `DEVHANDLE` and passed it to the vendor library, which returned `0x0A000026 "DisControlDev failed"`. A client-supplied integer is no longer a handle, so the request is now rejected with `-11` before the vendor library is reached. This is the defect RES-01 removes. |
+
+Note the asymmetry this recording exposed: the same fabricated handle that made
+`DisConnectDev` return an error **killed the process** in `GenerateRandom`. Vendor
+validation of a bogus handle is not something to rely on.
+
 ## Known environment limitations observed while recording
 
 - `IssueCertificate` recorded an error on macOS: the system LibreSSL `x509`

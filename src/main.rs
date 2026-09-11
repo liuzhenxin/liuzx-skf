@@ -282,6 +282,7 @@ fn provider_load_failed(
     RpcResponse::err(-5, msg, id)
 }
 
+
 /// Clear this session's authorization for a device an operation just found missing.
 ///
 /// Called from the failure paths that observe the device disappearing, so the next
@@ -491,31 +492,27 @@ async fn handle_request(
              }
         },
         "ConnectDev" => {
-            let provider = &ctx.config.default;
-            let api = match ctx.get_api(provider) {
-                 Ok(a) => a,
-                 Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
-             };
- 
-            if let Some(name_v) = req.params.get(0) {
-                 if let Some(name_str) = name_v.as_str() {
-                     let name_c = std::ffi::CString::new(name_str).unwrap();
-                     let mut h_dev: DEVHANDLE = std::ptr::null_mut();
-                     let ret = api.connect_dev(name_c.into_raw(), &mut h_dev);
-                     if ret == SAR_OK {
-                         RpcResponse::ok(serde_json::json!(format!("{}", h_dev as usize)), id)
-                     } else {
-                         let msg = match lang {
-                             Language::CN => "连接设备失败",
-                             Language::EN => "ConnectDev failed",
-                         };
-                         RpcResponse::err(ret as i32, msg.into(), id)
-                     }
-                 } else {
-                     RpcResponse::err(-2, "Invalid param type".into(), id)
-                 }
-            } else {
-                RpcResponse::err(-2, "Missing param".into(), id)
+            let name = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(name) => name,
+                None => return RpcResponse::err(-2, "Missing param".into(), id),
+            };
+
+            // The service now issues the handle. Before Phase 2 this returned the
+            // decimal value of a native pointer, which a client could send back and
+            // which the vendor library would then treat as a real handle.
+            match ctx.provider.open_device(name) {
+                Ok(guard) => {
+                    let handle = state.handles_mut().issue_device(guard);
+                    RpcResponse::ok(serde_json::json!(handle), id)
+                }
+                Err(ProviderError::Native { code, .. }) => {
+                    let msg = match lang {
+                        Language::CN => "连接设备失败",
+                        Language::EN => "ConnectDev failed",
+                    };
+                    RpcResponse::err(code as i32, msg.into(), id)
+                }
+                Err(e) => provider_load_failed(&e, lang, id),
             }
         },
         "EnumApplication" => {
@@ -1374,31 +1371,22 @@ async fn handle_request(
               }
          },
         "DisConnectDev" => {
-            let provider = &ctx.config.default;
-            let api = match ctx.get_api(provider) {
-                 Ok(a) => a,
-                 Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
-             };
-             
-            let handle_opt = req.params.get(0).and_then(|v| {
-                v.as_u64().map(|n| n as usize)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
-            });
+            // An integer is what a pre-Phase-2 client used to send back. It is no
+            // longer a handle and must never be converted into one: passing a
+            // fabricated value to the vendor library was observed to kill the
+            // process. Any non-string, unknown, or wrong-kind value is rejected.
+            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(handle) => handle,
+                None => return RpcResponse::err(-11, "Invalid or expired handle".into(), id),
+            };
 
-            if let Some(h_dev_val) = handle_opt {
-                let h_dev = h_dev_val as DEVHANDLE;
-                let ret = api.dis_connect_dev(h_dev);
-                if ret == SAR_OK {
+            match state.handles_mut().remove_device(handle) {
+                // Dropping the guard disconnects the device.
+                Ok(guard) => {
+                    drop(guard);
                     RpcResponse::ok(serde_json::json!(true), id)
-                } else {
-                    let msg = match lang {
-                        Language::CN => "断开连接失败",
-                        Language::EN => "DisControlDev failed",
-                    };
-                    RpcResponse::err(ret as i32, msg.into(), id)
                 }
-            } else {
-                RpcResponse::err(-2, "Missing or invalid handle".into(), id)
+                Err(_) => RpcResponse::err(-11, "Invalid or expired handle".into(), id),
             }
         },
         "FindCertificates" => {
@@ -1512,35 +1500,30 @@ async fn handle_request(
              RpcResponse::ok(serde_json::json!(results), id)
         },
         "GenerateRandom" => {
-             let provider = &ctx.config.default;
-             let api = match ctx.get_api(provider) {
-                 Ok(a) => a,
-                 Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
-             };
-             
-             let h_opt = req.params.get(0).and_then(|v| {
-                 v.as_u64().map(|n| n as usize)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
-             });
-             
-             if let (Some(h_val), Some(len_val)) = (h_opt, req.params.get(1).and_then(|v|v.as_u64())) {
-                 let h_dev = h_val as DEVHANDLE;
-                 let len = len_val as ULONG;
-                 let mut buf = vec![0u8; len as usize];
-                 let ret = api.gen_random(h_dev, buf.as_mut_ptr(), len);
-                 if ret == SAR_OK {
-                     let b64 = BASE64_STANDARD.encode(&buf);
-                     RpcResponse::ok(serde_json::json!(b64), id)
-                 } else {
-                     let msg = match lang {
-                         Language::CN => "生成随机数失败",
-                         Language::EN => "GenRandom failed",
-                     };
-                     RpcResponse::err(ret as i32, msg.into(), id)
-                 }
-             } else {
-                 RpcResponse::err(-2, "Bad params".into(), id)
-             }
+            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(handle) => handle,
+                None => return RpcResponse::err(-2, "Bad params".into(), id),
+            };
+            let len = match req.params.get(1).and_then(|v| v.as_u64()) {
+                Some(len) => len as usize,
+                None => return RpcResponse::err(-2, "Bad params".into(), id),
+            };
+
+            let guard = match state.handles_mut().device(handle) {
+                Ok(guard) => guard,
+                Err(_) => return RpcResponse::err(-11, "Invalid or expired handle".into(), id),
+            };
+            match guard.random(len) {
+                Ok(bytes) => RpcResponse::ok(serde_json::json!(BASE64_STANDARD.encode(&bytes)), id),
+                Err(ProviderError::Native { code, .. }) => {
+                    let msg = match lang {
+                        Language::CN => "生成随机数失败",
+                        Language::EN => "GenRandom failed",
+                    };
+                    RpcResponse::err(code as i32, msg.into(), id)
+                }
+                Err(e) => provider_load_failed(&e, lang, id),
+            }
         },
         "Digest" => {
             // Params: [providerName, deviceName, dataBase64, alg]
