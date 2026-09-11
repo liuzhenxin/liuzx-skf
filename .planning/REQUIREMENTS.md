@@ -9,12 +9,12 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 ### Foundation (FOUND)
 
-- [ ] **FOUND-01**: Developer can run `cargo test` and execute a non-zero number of Rust tests with no USB Key, no vendor driver, and no network access
-- [ ] **FOUND-02**: Business logic lives in a library crate so modules can be unit tested independently of the binary entry point
+- [x] **FOUND-01**: Developer can run `cargo test` and execute a non-zero number of Rust tests with no USB Key, no vendor driver, and no network access
+- [x] **FOUND-02**: Business logic lives in a library crate so modules can be unit tested independently of the binary entry point
 - [x] **FOUND-03**: The exact v0.2.0 request and response shapes for every currently supported method are captured as regression fixtures and enforced by automated tests
 - [ ] **FOUND-04**: SKF operations are reached through a provider abstraction with both a real vendor-backed implementation and a deterministic fake implementation
 - [ ] **FOUND-05**: The fake provider can inject failures (wrong PIN, missing container, missing symbol, device removal, blocking call) so failure paths are exercised in tests
-- [ ] **FOUND-06**: Pure encoding logic (DER, subject DN, SPKI, base64/hex) is covered by unit tests independent of hardware and OpenSSL
+- [x] **FOUND-06**: Pure encoding logic (DER, subject DN, SPKI, base64/hex) is covered by unit tests independent of hardware and OpenSSL
 
 ### Session and Authorization (SESS)
 
@@ -130,12 +130,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 1 | Pending |
-| FOUND-02 | Phase 1 | Pending |
+| FOUND-01 | Phase 1 | Complete |
+| FOUND-02 | Phase 1 | Complete |
 | FOUND-03 | Phase 1 | Complete |
 | FOUND-04 | Phase 1 | Pending |
 | FOUND-05 | Phase 1 | Pending |
-| FOUND-06 | Phase 1 | Pending |
+| FOUND-06 | Phase 1 | Complete |
 | SESS-01 | Phase 2 | Pending |
 | SESS-02 | Phase 2 | Pending |
 | SESS-03 | Phase 2 | Pending |

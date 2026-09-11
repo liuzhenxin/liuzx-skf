@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-09-11T05:29:32.085Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-09-11T05:37:18.584Z"
 last_activity: 2026-09-11
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 1 (Structural Foundation and Test Seam) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-09-11
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 1 P01 | 42 min | 3 tasks | 40 files |
+| Phase 1 P02 | 55 min | 3 tasks | 45 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,7 @@ Recent decisions affecting current work:
 - Testability precedes refactoring: provider seam and frozen v0.2.0 protocol fixtures land before security changes.
 - Loopback-only default retained; no TLS or remote exposure in this milestone.
 - `IssueCertificate` stays explicitly mock-only.
+- [Phase 1]: Fixture normalization must be verified across process restarts, not within one process — HashMap iteration order is stable within a process, so EnumProvider's order instability was invisible to a same-process determinism check
 
 ### Pending Todos
 
@@ -88,6 +90,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T05:29:32.078Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-09-11T05:37:18.578Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
