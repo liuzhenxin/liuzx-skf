@@ -35,12 +35,12 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - ✓ 已提供 Promise 风格 JavaScript 客户端、静态 API Demo 和物理 USB Key 集成脚本 — existing
 - ✓ Windows x64 可分发 i686 GM3000 独立包，并可注册为自动启动的 Windows SCM 服务 — v0.2.0
 - ✓ GitHub 标签可自动构建并发布经过 PE32/i386 架构校验的 Windows ZIP — v0.2.0
+- ✓ 每个客户端会话拥有独立授权状态（`OsRng` 会话 ID、TTL 由 `SKF_AUTH_TTL_SECONDS` 控制），断开/超时/设备不可用三条路径都会清除授权，且不保留可恢复的明文 PIN — Phase 2（`src/session/`、`cargo test session`）
+- ✓ 客户端只接触服务生成的不透明句柄（`dev-N`/`app-N`/`cnt-N`/`hsh-N`）；伪造整数、未知、过期或类型错误的句柄一律被拒 — Phase 2（`src/session/handles.rs`、`tests/session_isolation.rs`）
+- ✓ 设备、应用、容器和流式摘要资源通过守卫 RAII 在成功、原生错误、断连和会话结束场景确定性释放 — Phase 2（`src/domain/`、`tests/session_lifecycle.rs`）
 
 ### Active
 
-- [x] 每个客户端会话拥有独立授权状态，断开或超时后授权自动失效，服务不长期保存可恢复的明文 PIN — 仍待阶段 2 实现（Phase 1 只建立了可承载该状态的 `Session` 接缝）
-- [ ] 客户端只接触服务生成的不透明资源 ID，不能把任意数字作为原生 SKF 句柄传给厂商库
-- [ ] 设备、应用、容器和流式密码资源在成功、失败、断连及拔出场景都能确定性释放
 - [ ] 协议入口限制连接、帧、载荷、并发和执行时间，并区分只读与危险操作
 - [ ] SKF 调用通过清晰的 provider/worker 边界执行，阻塞厂商调用不会占满 Tokio 异步工作线程
 - [ ] 核心协议和业务流程可以使用 Fake SKF 后端在无硬件 CI 中确定性测试
@@ -61,8 +61,8 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 ## Context
 
 - v0.2.0 已发布 Windows x64-host / GM3000 x86 独立包，包含便携运行、SCM 安装、开机自启和 GitHub Release 自动构建。
-- 代码库地图位于 `.planning/codebase/`；当前主要实现集中在约 3,680 行的 `src/main.rs`，包含 37 个方法分支。
-- 一个进程级 `Arc<SkfContext>` 被所有 WebSocket 连接共享；其中包含 provider 库、明文 PIN 和流式哈希句柄缓存。
+- 代码库地图位于 `.planning/codebase/`；`src/main.rs` 现已收缩为组合根 + `Session` 实现 + 14 个未迁移分支（约 1,990 行），19 个安全相关分支已迁入 `src/domain/`，协议类型与类型化参数提取在 `src/protocol/`。
+- 一个进程级 `Arc<SkfContext>` 被所有 WebSocket 连接共享，但只保留 `config`、`provider` 与已加载库缓存；明文 PIN 与流式哈希句柄缓存已按会话迁移到 `SessionState`。
 - FFI 边界由 `src/skf/api.rs` 与 `src/skf/types.rs` 提供，依赖厂商 C ABI、原始指针和若干显式安全假设。
 - 当前 `cargo test` 运行零个 Rust 测试；Node 集成脚本依赖真实设备、驱动、PIN 和 OpenSSL，无法作为普通 Pull Request CI。
 - Windows Release 工作流能构建并检查架构，但尚未自动验证服务安装、启动就绪、停止、升级或卸载。
@@ -109,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-11 after Phase 1 (Structural Foundation and Test Seam)*
+*Last updated: 2026-09-11 after Phase 2 (Session Authorization and Resource Ownership)*
