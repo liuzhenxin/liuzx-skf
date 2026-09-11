@@ -29,6 +29,7 @@
 //! resolves the alias to a provider, which is what keeps vendor-library loading
 //! out of this module entirely.
 
+pub mod classification;
 pub mod container;
 pub mod crypto;
 pub mod keys;
