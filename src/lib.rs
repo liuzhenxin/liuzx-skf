@@ -12,6 +12,7 @@
 //! | [`config`] | Configuration load, `%VAR%` expansion, provider path resolution |
 //! | [`provider`] | Provider abstraction over the SKF C ABI (native + fake) |
 //! | [`server`] | Transport, bind/serve split, and the session seam |
+//! | [`session`] | Session identity, authorization, and opaque resource ownership |
 //! | [`skf`] | SKF C ABI adapter (unchanged) |
 //!
 //! Still owned by the binary crate and scheduled for later phases:
@@ -22,6 +23,7 @@ pub mod config;
 pub mod crypto;
 pub mod provider;
 pub mod server;
+pub mod session;
 pub mod skf;
 
 #[cfg(windows)]
