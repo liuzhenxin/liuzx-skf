@@ -26,8 +26,10 @@ Thumbs.db
 *.swo
 .env
 
-# Logs
+# Logs / runtime state
+/logs/
 *.log
+*.pid
 app.log
 skf_service.log
 
@@ -37,6 +39,7 @@ skf_service.log
 
 # Project Specific
 test_rcgen/
+/native/native/
 
 # Vendor Binaries (Optional but recommended for GitHub)
 # Un-comment these if you want to exclude vendor libraries from Git

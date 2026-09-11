@@ -25,7 +25,7 @@ vendor:
   "055c:e618": "GM3000"
 
 GM3000:
-  windows: "%ProgramFiles(X86)%\\GM3000\\mtoken_gm3000.dll"
+  windows: "native\\GM3000\\windows\\mtoken_gm3000.dll"
   linux:  "native/GM3000/linux/libgm3000.1.0.so"
   macos: "native/GM3000/macos/x86_64/libgm3000.1.0.dylib"
 ```
@@ -38,50 +38,143 @@ cargo run
 
 服务将监听 `ws://127.0.0.1:9001` (WebSocket)，并在 `http://0.0.0.0:8000` 提供 HTTP API Demo。
 
-## Windows 32 位打包指南
+## Windows x64 独立运行包（GM3000）
 
-如果你的硬件安全模块（USB Key）厂商提供的动态库（DLL）是 **32 位**，你需要编译并发布 32 位版本的 `skf-service.exe` 才能正常加载该库。请在 Windows 操作系统中按以下步骤构建：
+### 架构要求
 
-### 1. 准备环境
+仓库中的 `native/GM3000/windows/mtoken_gm3000.dll` 已确认为
+**PE32/i386（32 位）**。Windows x64 可以通过 WoW64 运行 32 位程序，但一个
+64 位进程不能加载该 DLL。因此部署架构必须保持如下组合：
 
-确保你已在 Windows 机器上安装 Rust 以及 C++ 构建工具：
+| 组件 | 架构 |
+| --- | --- |
+| Windows 操作系统 | x86_64 |
+| `skf-service.exe` | x86 / i686 |
+| `mtoken_gm3000.dll` | x86 / i386 |
 
-- 访问并安装 [rustup.rs](https://rustup.rs/) (如果没有安装)。
-- 下载 [Visual Studio Build Tools](https://visualstudio.microsoft.com/zh-hans/downloads/)，在安装时勾选 **“使用 C++ 的桌面开发” (Desktop development with C++)**，包含 MSVC v143 和 Windows SDK。
+如果 `skf-service.exe` 的 PE Machine 是 `0x8664`，调用 `EnumDevice` 时会出现
+`LoadLibraryExW failed`。正确的 exe 和 DLL 都应为 `0x014C`。
 
-### 2. 添加并编译 32 位目标 (MSVC)
+### 构建环境
 
-打开 Windows 终端（如 PowerShell 或 CMD），执行以下命令添加目标架构并编译：
+请在 Windows x64 构建机安装：
+
+- [Rust](https://rustup.rs/)；
+- Visual Studio Build Tools；
+- “使用 C++ 的桌面开发”；
+- MSVC v143 x86/x64 构建工具与 Windows SDK。
+
+目标计算机运行时不需要 Rust、Cargo 或 Node.js，但必须安装 GM3000 USB Key
+硬件驱动；随包的用户态 SKF DLL 不能替代 USB/HID 内核驱动。
+
+### 一键构建与打包
+
+在工程根目录的 PowerShell 中执行：
 
 ```powershell
-# 1. 安装 32 位工具链
-rustup target add i686-pc-windows-msvc
-
-# 2. 编译 Release 版程序
-cargo build --target i686-pc-windows-msvc --release
+cd D:\liuzx-skf
+powershell -ExecutionPolicy Bypass -File .\packaging\windows\build.ps1
 ```
 
-### 3. 手动打包文件
+脚本默认执行：
 
-编译成功后，新建一个发布文件夹（如 `skf-service-windows-x86`），并将所需文件进行归档整理：
+```powershell
+rustup target add i686-pc-windows-msvc
+cargo build --release --target i686-pc-windows-msvc
+```
 
-1. 将编译好的服务主程序 `target\i686-pc-windows-msvc\release\skf-service.exe` 复制到发布文件夹中。
-2. 将项目根目录的代码配置与依赖 `config/` 和 `native/` 文件夹复制进去。
-3. （可选）如果你需要演示页面，一并复制 `api/` 文件夹。
+并使用静态 MSVC CRT，随后校验 exe 和 DLL 均为 PE Machine `0x014C`。输出：
 
 ```text
-skf-service-windows-x86/
-├── skf-service.exe    # 刚刚编译出的 32 位主程序
-├── config/            # 配置目录
-│   └── skf.yaml       # 必须包含提供商的库路径映射
-├── native/            # DLL 库目录
-│   └── FishMan/       
-│       └── windows/
-│           └── KeyGDBApi.dll  # 这里放厂商的 32 位库
-└── api/               # 静态 API 演示目录
+dist\skf-service-windows-x64-gm3000-x86\
+dist\skf-service-windows-x64-gm3000-x86.zip
 ```
 
-这套整理好的文件夹即可发送给其他使用了 32 位环境或 32 位 UKey DLL 的客户开箱即运行。
+完整打包脚本和运行包说明见
+[`packaging/windows/README-Windows-x86_64.md`](packaging/windows/README-Windows-x86_64.md)。
+
+### 运行包结构
+
+```text
+skf-service-windows-x64-gm3000-x86\
+├── skf-service.exe
+├── run.bat
+├── install.bat
+├── install.ps1
+├── uninstall.bat
+├── uninstall.ps1
+├── config\skf.yaml
+├── native\GM3000\windows\mtoken_gm3000.dll
+└── api\
+```
+
+运行包中的配置必须从随包路径加载 DLL：
+
+```yaml
+GM3000:
+  windows: "native\\GM3000\\windows\\mtoken_gm3000.dll"
+```
+
+### 便携运行与服务安装
+
+解压后可直接双击 `run.bat` 前台运行。要安装为开机自启服务，右键
+`install.bat` 并选择“以管理员身份运行”。安装脚本会复制到：
+
+```text
+C:\Program Files (x86)\LiuZX\SKF Service
+```
+
+注册并立即启动 `LiuZXSKFService`，同时配置崩溃自动重启。常用命令：
+
+```powershell
+sc.exe query LiuZXSKFService
+Restart-Service LiuZXSKFService
+Test-NetConnection 127.0.0.1 -Port 9001
+```
+
+服务日志：
+
+```text
+C:\Program Files (x86)\LiuZX\SKF Service\skf-service.log
+```
+
+卸载时右键管理员运行 `uninstall.bat`。
+
+### 检查 PE 架构
+
+普通 PowerShell 不一定包含 `dumpbin`，可直接读取 PE Machine：
+
+```powershell
+$files = @(
+  '.\dist\skf-service-windows-x64-gm3000-x86\skf-service.exe',
+  '.\dist\skf-service-windows-x64-gm3000-x86\native\GM3000\windows\mtoken_gm3000.dll'
+)
+foreach ($path in $files) {
+    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $path))
+    $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+    $machine = [BitConverter]::ToUInt16($bytes, ($peOffset + 4))
+    "{0}: Machine=0x{1:X4}" -f $path, $machine
+}
+```
+
+两个文件都应输出 `Machine=0x014C`。
+
+### `LoadLibraryExW failed` 排查
+
+1. 检查 exe 和 DLL 是否都为 `0x014C`；
+2. 检查 `config/skf.yaml` 是否仍指向旧的
+   `C:\Program Files (x86)\GM3000\mtoken_gm3000.dll`；
+3. 检查随包 DLL 是否存在：
+
+```powershell
+Test-Path '.\native\GM3000\windows\mtoken_gm3000.dll'
+```
+
+4. 修改配置或替换 DLL 后重启服务，清除已缓存的动态库状态。
+
+如果客户端运行在宿主机而服务运行在虚拟机，`127.0.0.1` 指向宿主机而不是
+虚拟机。此时需要设置 `SKF_WS_ADDR=0.0.0.0:9001`、开放防火墙端口，并使用
+`ws://<虚拟机IP>:9001` 连接。
 
 ## WebSocket API
 

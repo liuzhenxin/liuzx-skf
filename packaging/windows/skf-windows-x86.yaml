@@ -1,0 +1,11 @@
+# Runtime package for Windows x64 OS + GM3000 x86 SKF middleware.
+# The bundled skf-service.exe must be built for i686-pc-windows-msvc because
+# mtoken_gm3000.dll is a PE32/i386 DLL.
+default: "GM3000"
+
+vendor:
+  "055c:e618": "GM3000"
+  "096e:0309": "GM3000"
+
+GM3000:
+  windows: "native\\GM3000\\windows\\mtoken_gm3000.dll"

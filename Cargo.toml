@@ -1,6 +1,6 @@
 [package]
 name = "skf-service"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -20,4 +20,10 @@ x509-parser = "0.15"
 warp = "0.3"
 smcrypto = "0.3"
 rand = "0.8"
+
+# Windows Service (SCM) integration. Only built on Windows targets.
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+# Used to redirect stdout/stderr to a log file when running as a service.
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 

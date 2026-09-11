@@ -25,7 +25,7 @@ vendor:
   "055c:e618": "GM3000"
 
 GM3000:
-  windows: "%ProgramFiles(X86)%\\GM3000\\mtoken_gm3000.dll"
+  windows: "native\\GM3000\\windows\\mtoken_gm3000.dll"
   linux:  "native/GM3000/linux/libgm3000.1.0.so"
   macos: "native/GM3000/macos/x86_64/libgm3000.1.0.dylib"
 ```
@@ -37,6 +37,52 @@ cargo run
 ```
 
 The service will start listening on `ws://127.0.0.1:9001` for WebSocket and `http://0.0.0.0:8000` for HTTP API Demo.
+
+## Standalone Windows x64 Package (GM3000)
+
+The bundled `native/GM3000/windows/mtoken_gm3000.dll` is a PE32/i386
+(32-bit) DLL. Windows x64 can run an x86 service through WoW64, but an x64
+process cannot load this DLL. The required deployment combination is:
+
+| Component | Architecture |
+| --- | --- |
+| Windows | x86_64 |
+| `skf-service.exe` | x86 / i686 (`Machine=0x014C`) |
+| `mtoken_gm3000.dll` | x86 / i386 (`Machine=0x014C`) |
+
+Build and assemble the standalone package on Windows:
+
+```powershell
+cd D:\liuzx-skf
+powershell -ExecutionPolicy Bypass -File .\packaging\windows\build.ps1
+```
+
+Output:
+
+```text
+dist\skf-service-windows-x64-gm3000-x86\
+dist\skf-service-windows-x64-gm3000-x86.zip
+```
+
+After extraction:
+
+- Run `run.bat` for portable foreground mode.
+- Run `install.bat` as Administrator to install and immediately start the
+  `LiuZXSKFService` Windows service with automatic startup.
+- Run `uninstall.bat` as Administrator to stop and remove the service.
+
+The runtime config must use the packaged DLL:
+
+```yaml
+GM3000:
+  windows: "native\\GM3000\\windows\\mtoken_gm3000.dll"
+```
+
+The target machine does not need Rust or Node.js, but it still requires the
+GM3000 hardware driver. See
+[`packaging/windows/README-Windows-x86_64.md`](packaging/windows/README-Windows-x86_64.md)
+for packaging, PE architecture verification, service management and
+`LoadLibraryExW failed` troubleshooting.
 
 ## WebSocket API
 

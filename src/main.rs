@@ -1,5 +1,10 @@
 mod skf;
 
+// Windows Service (SCM) support: `install` / `uninstall` / `start` / `stop` /
+// `status` subcommands plus the `--service` entry point used by the SCM.
+#[cfg(windows)]
+mod win_service;
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use libloading::Library;
@@ -87,8 +92,14 @@ impl SkfContext {
         println!("Loading SKF library for {} from: {}", provider, lib_path);
         
         // Safety: Loading foreign libraries is inherently unsafe.
-        let lib = unsafe { Library::new(&lib_path) }
-            .map_err(|e| anyhow::anyhow!("Failed to load library '{}': {}", lib_path, e))?;
+        let lib = unsafe { Library::new(&lib_path) }.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to load library '{}' (process architecture: {}): {:?}",
+                lib_path,
+                std::env::consts::ARCH,
+                e
+            )
+        })?;
             
         let api = Arc::new(SkfApi::new(lib));
 
@@ -175,49 +186,167 @@ enum Language {
     CN,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // Windows Service (SCM) management commands and service entry point.
+    // Compiled only on Windows targets; ignored on other platforms.
+    #[cfg(windows)]
+    {
+        let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+        match argv.get(1).and_then(|a| a.to_str()) {
+            Some("install") => {
+                crate::win_service::install()?;
+                return Ok(());
+            }
+            Some("uninstall") => {
+                crate::win_service::uninstall()?;
+                return Ok(());
+            }
+            Some("start") => {
+                crate::win_service::start()?;
+                return Ok(());
+            }
+            Some("stop") => {
+                crate::win_service::stop()?;
+                return Ok(());
+            }
+            Some("status") => {
+                crate::win_service::status()?;
+                return Ok(());
+            }
+            Some("--service") => {
+                // Launched by the Service Control Manager. Blocks until the
+                // service is stopped, then exits the process.
+                return crate::win_service::run();
+            }
+            _ => {}
+        }
+    }
+
     env_logger::init();
 
-    let cfg_text = std::fs::read_to_string("config/skf.yaml")?;
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| anyhow::anyhow!("failed to create Tokio runtime: {}", e))?;
+    rt.block_on(run_server(None))
+}
+
+/// Common server bootstrap used by both foreground (console) mode and the
+/// Windows service mode.
+///
+/// `shutdown` is provided by the Windows service control handler: when the SCM
+/// sends STOP/SHUTDOWN the watch value flips to `true` and the accept loop
+/// exits so that the service can transition to the Stopped state cleanly.
+async fn run_server(shutdown: Option<tokio::sync::watch::Receiver<bool>>) -> anyhow::Result<()> {
+    // Services are launched by the SCM with the current directory set to
+    // %SystemRoot%\System32. Fall back to the directory that contains the
+    // executable so that `config/`, `api/` and relative `native/` library paths
+    // from the YAML config still resolve when running as an installed service.
+    if !std::path::Path::new("config/skf.yaml").exists() {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                log::info!("changing working directory to {}", dir.display());
+                let _ = std::env::set_current_dir(dir);
+            }
+        }
+    }
+
+    let cfg_path =
+        std::env::var("SKF_CONFIG").unwrap_or_else(|_| "config/skf.yaml".to_string());
+    let cfg_text = std::fs::read_to_string(&cfg_path)
+        .map_err(|e| anyhow::anyhow!("failed to read config '{}': {}", cfg_path, e))?;
     let cfg: SkfConfig = serde_yaml::from_str(&cfg_text)?;
 
     // Initialize empty context with config
     let ctx = Arc::new(SkfContext::new(cfg));
 
-    // --- Start HTTP Server for API Demo ---
-    // Serve "api" directory at http://0.0.0.0:8000
-    // If "api" folder is in current working directory
-    tokio::spawn(async {
-        use warp::Filter;
+    // --- HTTP Server for the API demo page ---
+    // Serves the "api" directory. In console mode it binds 0.0.0.0:8000 so the
+    // demo page is reachable over the LAN; as an installed Windows service it
+    // binds 127.0.0.1:8000 to avoid triggering the Windows firewall on first
+    // launch (override either way with SKF_HTTP_ADDR=ip:port).
+    let http_addr: std::net::SocketAddr = match std::env::var("SKF_HTTP_ADDR") {
+        Ok(addr) => addr
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid SKF_HTTP_ADDR '{}': {}", addr, e))?,
+        Err(_) => {
+            let default = if shutdown.is_some() {
+                "127.0.0.1:8000"
+            } else {
+                "0.0.0.0:8000"
+            };
+            default
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid default HTTP addr '{}': {}", default, e))?
+        }
+    };
+
+    tokio::spawn(async move {
         let api_route = warp::fs::dir("api");
-        println!("HTTP Server serving 'api' directory on http://0.0.0.0:8000");
-        warp::serve(api_route).run(([0, 0, 0, 0], 8000)).await;
+        println!("HTTP Server serving 'api' directory on http://{}", http_addr);
+        warp::serve(api_route).run(http_addr).await;
     });
     // --------------------------------------
 
-    let listener = TcpListener::bind("127.0.0.1:9001").await?;
-    println!("SKF Service listening on ws://127.0.0.1:9001");
+    let ws_addr =
+        std::env::var("SKF_WS_ADDR").unwrap_or_else(|_| "127.0.0.1:9001".to_string());
+    let listener = TcpListener::bind(&ws_addr)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to bind WebSocket listener on {}: {}", ws_addr, e))?;
+    println!("SKF Service listening on ws://{}", ws_addr);
 
-    while let Ok((stream, _)) = listener.accept().await {
-        let ctx = ctx.clone();
-        tokio::spawn(async move {
-            let mut ws = accept_async(stream).await.unwrap();
-            let mut lang = Language::EN; // Default to English
-            while let Some(msg) = ws.next().await {
-                match msg {
-                    Ok(msg) if msg.is_text() => {
-                        let text = msg.to_text().unwrap();
-                        let resp = handle_request(&ctx, text, &mut lang).await;
-                        let reply_str = serde_json::to_string(&resp).unwrap();
-                        let _ = ws.send(tungstenite::Message::Text(reply_str)).await;
+    // Accept loop. In service mode we stop as soon as the SCM requests a stop.
+    match shutdown {
+        Some(mut stop) => {
+            loop {
+                tokio::select! {
+                    changed = stop.changed() => {
+                        match changed {
+                            Ok(()) => log::info!("service stop requested, shutting down"),
+                            Err(_) => log::info!("service stop channel closed, shutting down"),
+                        }
+                        break;
                     }
-                    _ => {}
+                    accepted = listener.accept() => {
+                        match accepted {
+                            Ok((stream, _)) => spawn_ws_client(ctx.clone(), stream),
+                            Err(e) => {
+                                log::error!("WebSocket accept error: {}", e);
+                                break;
+                            }
+                        }
+                    }
                 }
             }
-        });
+        }
+        None => {
+            while let Ok((stream, _)) = listener.accept().await {
+                spawn_ws_client(ctx.clone(), stream);
+            }
+        }
     }
     Ok(())
+}
+
+/// Spawn a task that upgrades the TCP stream to WebSocket and dispatches
+/// JSON-RPC 2.0 requests to `handle_request`.
+fn spawn_ws_client(ctx: Arc<SkfContext>, stream: tokio::net::TcpStream) {
+    tokio::spawn(async move {
+        let mut ws = match accept_async(stream).await {
+            Ok(ws) => ws,
+            Err(_) => return,
+        };
+        let mut lang = Language::EN; // Default to English
+        while let Some(msg) = ws.next().await {
+            match msg {
+                Ok(msg) if msg.is_text() => {
+                    let text = msg.to_text().unwrap();
+                    let resp = handle_request(&ctx, text, &mut lang).await;
+                    let reply_str = serde_json::to_string(&resp).unwrap();
+                    let _ = ws.send(tungstenite::Message::Text(reply_str)).await;
+                }
+                _ => {}
+            }
+        }
+    });
 }
 
 /// Convert a hex string to bytes
@@ -246,9 +375,10 @@ fn der_encode_integer(bytes: &[u8]) -> Vec<u8> {
     let needs_pad = !trimmed.is_empty() && (trimmed[0] & 0x80) != 0;
     let int_len = trimmed.len() + if needs_pad { 1 } else { 0 };
 
-    let mut out = Vec::with_capacity(2 + int_len);
+    let encoded_len = der_encode_length(int_len);
+    let mut out = Vec::with_capacity(1 + encoded_len.len() + int_len);
     out.push(0x02); // INTEGER tag
-    out.push(int_len as u8); // length (always < 128 for SM2/ECC)
+    out.extend_from_slice(&encoded_len);
     if needs_pad {
         out.push(0x00);
     }
@@ -265,6 +395,13 @@ fn der_encode_length(len: usize) -> Vec<u8> {
     } else {
         vec![0x82, (len >> 8) as u8, len as u8]
     }
+}
+
+fn temp_file_path(file_name: &str) -> String {
+    std::env::temp_dir()
+        .join(file_name)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Wrap content with a DER tag + length
@@ -778,8 +915,10 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
 
              // Generate a unique ID for the temp files
              let req_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-             let csr_path = format!("/tmp/req_{}.csr", req_id);
-             let crt_path = format!("/tmp/cert_{}.crt", req_id);
+             let csr_path = temp_file_path(&format!("req_{}.csr", req_id));
+             let crt_path = temp_file_path(&format!("cert_{}.crt", req_id));
+             let ca_key_path = temp_file_path("skf_ca.key");
+             let ca_crt_path = temp_file_path("skf_ca.crt");
              
              if let Err(e) = std::fs::write(&csr_path, &csr_bytes) {
                  return RpcResponse::err(-4, format!("Failed to write CSR to disk: {}", e), id);
@@ -836,28 +975,28 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              }
 
              // Check if mock CA exists, else generate
-             if !std::path::Path::new("/tmp/skf_ca.key").exists() {
+             if !std::path::Path::new(&ca_key_path).exists() {
                  let _ = std::process::Command::new("openssl")
-                     .args(&["req", "-x509", "-newkey", "rsa:2048", "-keyout", "/tmp/skf_ca.key", "-out", "/tmp/skf_ca.crt", "-days", "3650", "-nodes", "-subj", "/CN=SKF Demo CA"])
+                     .args(&["req", "-x509", "-newkey", "rsa:2048", "-keyout", &ca_key_path, "-out", &ca_crt_path, "-days", "3650", "-nodes", "-subj", "/CN=SKF Demo CA"])
                      .output();
              }
 
              // Extract public key from CSR (SM2 CSRs require distid for signature verification)
-             let pub_key_path = format!("/tmp/pub_{}.pem", req_id);
-             let _ = std::process::Command::new("sh")
-                 .args(&["-c", &format!("openssl req -in {} -pubkey -noout -vfyopt distid:1234567812345678 > {}", csr_path, pub_key_path)])
+             let pub_key_path = temp_file_path(&format!("pub_{}.pem", req_id));
+             let _ = std::process::Command::new("openssl")
+                 .args(&["req", "-in", &csr_path, "-pubkey", "-noout", "-vfyopt", "distid:1234567812345678", "-out", &pub_key_path])
                  .output();
 
              // Generate a dummy RSA CSR
-             let dummy_csr_path = format!("/tmp/dummy_{}.csr", req_id);
-             let dummy_key_path = format!("/tmp/dummy_{}.key", req_id);
+             let dummy_csr_path = temp_file_path(&format!("dummy_{}.csr", req_id));
+             let dummy_key_path = temp_file_path(&format!("dummy_{}.key", req_id));
              let _ = std::process::Command::new("openssl")
                  .args(&["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", &dummy_key_path, "-out", &dummy_csr_path, "-subj", &extracted_subject])
                  .output();
-                 
+
              // Issue sign certificate
              let output = std::process::Command::new("openssl")
-                 .args(&["x509", "-req", "-in", &dummy_csr_path, "-CA", "/tmp/skf_ca.crt", "-CAkey", "/tmp/skf_ca.key", "-CAcreateserial", "-out", &crt_path, "-days", "3650", "-force_pubkey", &pub_key_path])
+                 .args(&["x509", "-req", "-in", &dummy_csr_path, "-CA", &ca_crt_path, "-CAkey", &ca_key_path, "-CAcreateserial", "-out", &crt_path, "-days", "3650", "-force_pubkey", &pub_key_path])
                  .output();
 
              let sign_cert_pem = match output {
@@ -898,9 +1037,9 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              }
 
              // === Double cert mode: generate enc cert + cryptographically valid ENVELOPEDKEYBLOB ===
-             
+
              // 1. Use the sign public key X,Y already extracted from the CSR
-             
+
              let (sign_pub_x, sign_pub_y) = match sign_pub_xy {
                  Some((x, y)) => (x, y),
                  None => {
@@ -912,7 +1051,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                      return RpcResponse::err(-7, "Failed to extract sign public key from CSR".into(), id);
                  }
              };
-             
+
              // 2. Generate SM2 enc key pair using smcrypto
              let (enc_sk_hex, enc_pk_hex) = smcrypto::sm2::gen_keypair();
              // enc_pk_hex is X||Y hex (without 04 prefix), 128 hex chars = 64 bytes
@@ -920,44 +1059,44 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              let enc_sk_bytes = hex_to_bytes(&enc_sk_hex);
              let enc_pub_x = if enc_pk_bytes.len() >= 64 { &enc_pk_bytes[..32] } else { &[0u8; 32][..] };
              let enc_pub_y = if enc_pk_bytes.len() >= 64 { &enc_pk_bytes[32..64] } else { &[0u8; 32][..] };
-             
+
              // 3. Generate enc certificate using OpenSSL with the smcrypto-generated public key
              // Write the enc public key as PEM for OpenSSL
-             let enc_pub_pem_path = format!("/tmp/enc_pub_{}.pem", req_id);
-             let enc_crt_path = format!("/tmp/enc_{}.crt", req_id);
+             let enc_pub_pem_path = temp_file_path(&format!("enc_pub_{}.pem", req_id));
+             let enc_crt_path = temp_file_path(&format!("enc_{}.crt", req_id));
              {
                  // Build SubjectPublicKeyInfo DER for SM2 key
                  let mut point = vec![0x04u8]; // uncompressed
                  point.extend_from_slice(enc_pub_x);
                  point.extend_from_slice(enc_pub_y);
                  // Write as PEM via openssl
-                 let enc_key_der_path = format!("/tmp/enc_raw_{}.bin", req_id);
+                 let enc_key_der_path = temp_file_path(&format!("enc_raw_{}.bin", req_id));
+                 let tmp_key_path = temp_file_path(&format!("tmpkey_{}.pem", req_id));
                  let _ = std::fs::write(&enc_key_der_path, &point);
                  // Use openssl to convert raw point to PEM public key - use EC param file
-                 let _ = std::process::Command::new("sh")
-                     .args(&["-c", &format!(
-                         "openssl ecparam -name SM2 -genkey -noout -out /tmp/tmpkey_{}.pem && \
-                          openssl ec -in /tmp/tmpkey_{}.pem -pubout -out {}",
-                         req_id, req_id, enc_pub_pem_path
-                     )])
+                 let _ = std::process::Command::new("openssl")
+                     .args(&["ecparam", "-name", "SM2", "-genkey", "-noout", "-out", &tmp_key_path])
+                     .output();
+                 let _ = std::process::Command::new("openssl")
+                     .args(&["ec", "-in", &tmp_key_path, "-pubout", "-out", &enc_pub_pem_path])
                      .output();
                  let _ = std::fs::remove_file(&enc_key_der_path);
-                 let _ = std::fs::remove_file(format!("/tmp/tmpkey_{}.pem", req_id));
+                 let _ = std::fs::remove_file(&tmp_key_path);
              }
              // Issue enc certificate (use the sign cert's dummy approach, inject enc pubkey)
-             let dummy2_csr_path = format!("/tmp/dummy2_{}.csr", req_id);
-             let dummy2_key_path = format!("/tmp/dummy2_{}.key", req_id);
+             let dummy2_csr_path = temp_file_path(&format!("dummy2_{}.csr", req_id));
+             let dummy2_key_path = temp_file_path(&format!("dummy2_{}.key", req_id));
              let _ = std::process::Command::new("openssl")
                  .args(&["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", &dummy2_key_path, "-out", &dummy2_csr_path, "-subj", &extracted_subject])
                  .output();
-             // For the enc cert, just use the sign cert PEM as we can't easily inject the smcrypto pubkey through openssl  
+             // For the enc cert, just use the sign cert PEM as we can't easily inject the smcrypto pubkey through openssl
              // Instead, let's issue a second cert with the same dummy approach - the cert content doesn't need to match the ENVELOPEDKEYBLOB pubkey strictly for demo
              let _ = std::process::Command::new("openssl")
-                 .args(&["x509", "-req", "-in", &dummy2_csr_path, "-CA", "/tmp/skf_ca.crt", "-CAkey", "/tmp/skf_ca.key", "-CAcreateserial", "-out", &enc_crt_path, "-days", "3650"])
+                 .args(&["x509", "-req", "-in", &dummy2_csr_path, "-CA", &ca_crt_path, "-CAkey", &ca_key_path, "-CAcreateserial", "-out", &enc_crt_path, "-days", "3650"])
                  .output();
-             
+
              let enc_cert_pem = std::fs::read_to_string(&enc_crt_path).unwrap_or_default();
-             
+
              // 4. Generate random 16-byte SM4 session key
              use rand::Rng;
              let mut rng = rand::thread_rng();
@@ -1044,11 +1183,11 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              
              let enc_pri_key_b64 = BASE64_STANDARD.encode(&enveloped_blob);
              
-             log::info!("Double cert generated: enc_sk={} enc_pk_x={} enc_pk_y={} session_key={} encrypted_prikey_len={} cipher_len={}", 
-                 enc_sk_hex, 
-                 enc_pub_x.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
-                 enc_pub_y.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
-                 session_key.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+             // Never log private-key or session-key material. Length-only metadata
+             // is sufficient for diagnostics and safe for production logs.
+             log::info!(
+                 "Double cert generated: enc_public_key_len={} encrypted_private_key_len={} cipher_len={}",
+                 enc_pk_bytes.len(),
                  encrypted_pri_key_padded.len(),
                  c2_cipher.len()
              );
@@ -1985,7 +2124,18 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             } else {
                 let mut sig_buf = vec![0u8; 512];
                 let mut sig_len: ULONG = sig_buf.len() as ULONG;
-                let ret = api.rsa_sign_data(h_cont, hash_buf.as_mut_ptr(), hash_buf.len() as ULONG, sig_buf.as_mut_ptr(), &mut sig_len);
+                // SKF_RSA_SignData performs the RSA PKCS#1 v1.5 private-key operation but does
+                // not add the hash AlgorithmIdentifier. SHA256withRSA therefore signs the DER
+                // DigestInfo, not the bare 32-byte digest.
+                const SHA256_DIGEST_INFO_PREFIX: [u8; 19] = [
+                    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
+                    0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
+                ];
+                let mut digest_info = Vec::with_capacity(SHA256_DIGEST_INFO_PREFIX.len() + hash_buf.len());
+                digest_info.extend_from_slice(&SHA256_DIGEST_INFO_PREFIX);
+                digest_info.extend_from_slice(&hash_buf);
+                let ret = api.rsa_sign_data(h_cont, digest_info.as_mut_ptr(), digest_info.len() as ULONG,
+                    sig_buf.as_mut_ptr(), &mut sig_len);
                 api.close_container(h_cont);
                 api.close_application(h_app);
                 api.dis_connect_dev(h_dev);
@@ -2016,7 +2166,10 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             }
             if !pem.ends_with('\n') { pem.push('\n'); }
             pem.push_str("-----END CERTIFICATE REQUEST-----");
-            std::fs::write("/tmp/last_generated.csr", pem.as_bytes()).unwrap();
+            let last_csr_path = temp_file_path("last_generated.csr");
+            if let Err(e) = std::fs::write(&last_csr_path, pem.as_bytes()) {
+                log::warn!("Failed to write debug CSR to {}: {}", last_csr_path, e);
+            }
 
             RpcResponse::ok(serde_json::json!({
                 "pem": pem,
@@ -3440,7 +3593,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             };
 
             let hash_handles = ctx.hash_handles.read().unwrap();
-            let (send_h_hash, _send_h_dev, provider, lib_path) = match hash_handles.get(handle_key) {
+            let (send_h_hash, _send_h_dev, _provider, lib_path) = match hash_handles.get(handle_key) {
                 Some(h) => (h.0, h.1, h.2.clone(), h.3.clone()),
                 None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
             };
@@ -3467,7 +3620,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             };
 
             let mut hash_handles = ctx.hash_handles.write().unwrap();
-            let (send_h_hash, send_h_dev, provider, lib_path) = match hash_handles.remove(handle_key) {
+            let (send_h_hash, send_h_dev, _provider, lib_path) = match hash_handles.remove(handle_key) {
                 Some(h) => h,
                 None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
             };

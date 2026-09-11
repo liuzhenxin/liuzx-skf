@@ -1,8 +1,7 @@
-#![allow(non_camel_case_types)]
+#![allow(dead_code, non_camel_case_types, non_snake_case)]
 use super::types::*;
 use libloading::{Library, Symbol};
 use std::sync::Arc;
-use std::ffi::c_void;
 
 // Function Pointer Types
 pub type F_SKF_WaitForDevEvent = unsafe extern "system" fn(szDevName: *mut CHAR, pulDevNameLen: *mut ULONG, pulEvent: *mut ULONG) -> ULONG;
@@ -90,7 +89,7 @@ impl SkfApi {
         Self { lib: Arc::new(lib) }
     }
 
-    pub unsafe fn get_func<T>(&self, name: &[u8]) -> Result<Symbol<T>, libloading::Error> {
+    pub unsafe fn get_func<T>(&self, name: &[u8]) -> Result<Symbol<'_, T>, libloading::Error> {
         self.lib.get(name)
     }
 

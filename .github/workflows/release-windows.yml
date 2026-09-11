@@ -1,0 +1,51 @@
+name: Release Windows package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x86-package:
+    name: Build Windows x64-host / x86-GM3000 package
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build standalone Windows package
+        shell: powershell
+        run: .\packaging\windows\build.ps1
+
+      - name: Verify release asset
+        shell: powershell
+        run: |
+          $asset = ".\dist\skf-service-windows-x64-gm3000-x86.zip"
+          if (-not (Test-Path $asset)) {
+            throw "Release asset was not generated: $asset"
+          }
+          Get-Item $asset | Format-List FullName, Length, LastWriteTime
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skf-service-windows-x64-gm3000-x86
+          path: dist/skf-service-windows-x64-gm3000-x86.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "$env:TAG_NAME" `
+            ".\dist\skf-service-windows-x64-gm3000-x86.zip" `
+            --title "SKF Service $env:TAG_NAME" `
+            --generate-notes

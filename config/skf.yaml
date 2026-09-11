@@ -2,11 +2,11 @@ default: "GM3000"
 
 vendor:
   "055c:e618": "GM3000"
-  "096e:0309": "3000GM"
+  "096e:0309": "GM3000"
 
 ## 龙脉 GM3000
 GM3000:
-  windows: "%ProgramFiles(X86)%\\GM3000\\mtoken_gm3000.dll"
+  windows: "native\\GM3000\\windows\\mtoken_gm3000.dll"
   linux:  "native/GM3000/linux/libgm3000.1.0.so"
   macos: "native/GM3000/macos/x86_64/libgm3000.1.0.dylib"
 
