@@ -18,7 +18,7 @@ use super::{
 pub struct CheckPIN;
 
 impl CheckPIN {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -155,7 +155,7 @@ mod tests {
         let mut state = SessionState::new(Duration::from_secs(600));
         let p = params(vec![json!("FAKE/dev-a/app-a"), json!("00000000")]);
 
-        let response = CheckPIN::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = CheckPIN::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_ne!(response.error, 0, "an injected failure must not succeed");
         assert_eq!(fake.call_count(Operation::CloseDevice), 1);
@@ -173,7 +173,7 @@ mod tests {
         let mut state = SessionState::new(Duration::from_secs(600));
         let p = params(vec![json!("FAKE/dev-a/app-a"), json!("00000000")]);
 
-        let response = CheckPIN::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = CheckPIN::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0);
         assert_eq!(state.auth().len(), 1, "exactly one grant must be recorded");

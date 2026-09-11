@@ -166,15 +166,19 @@ struct JsonRpcSession {
     /// Owns this connection's authorization and native resources. Dropping it
     /// deregisters the session and releases everything it holds.
     guard: SessionGuard,
+    /// Session authorization lifetime, used to rebuild an empty state if a
+    /// blocking dispatch task fails.
+    ttl: std::time::Duration,
 }
 
 impl JsonRpcSession {
-    fn new(ctx: Arc<SkfContext>, guard: SessionGuard) -> Self {
+    fn new(ctx: Arc<SkfContext>, guard: SessionGuard, ttl: std::time::Duration) -> Self {
         Self {
             ctx,
             // The pre-refactor server defaulted every connection to English.
             lang: Language::EN,
             guard,
+            ttl,
         }
     }
 }
@@ -182,11 +186,44 @@ impl JsonRpcSession {
 impl skf_service::server::Session for JsonRpcSession {
     fn handle<'a>(&'a mut self, text: &'a str) -> futures_util::future::BoxFuture<'a, String> {
         Box::pin(async move {
-            let response =
-                handle_request(&self.ctx, self.guard.state_mut(), text, &mut self.lang).await;
-            serde_json::to_string(&response).unwrap_or_else(|e| {
-                format!("{{\"error\":-1,\"message\":\"serialize failed: {}\"}}", e)
+            // The dispatcher body runs on the blocking pool: every vendor FFI call
+            // — and every guard Drop, which also calls the vendor library — must
+            // stay off the async runtime workers (TRANS-04). The state and the
+            // language travel with it and are restored afterwards.
+            let ctx = Arc::clone(&self.ctx);
+            let ttl = self.ttl;
+            let mut state = self.guard.take_state();
+            // Preserve the session language: rebuilding it as EN would reset
+            // every SetLanguage and drift the recorded contract.
+            let mut lang = std::mem::replace(&mut self.lang, Language::EN);
+            let text_owned = text.to_string();
+
+            let joined = tokio::task::spawn_blocking(move || {
+                let response = handle_request(&ctx, &mut state, &text_owned, &mut lang);
+                (state, response, lang)
             })
+            .await;
+
+            match joined {
+                Ok((state, response, lang)) => {
+                    self.guard.put_state(state);
+                    self.lang = lang;
+                    serde_json::to_string(&response).unwrap_or_else(|e| {
+                        format!("{{\"error\":-1,\"message\":\"serialize failed: {}\"}}", e)
+                    })
+                }
+                Err(join) => {
+                    // The real state is still on the failed task and is released when
+                    // that thread unwinds; give this connection an empty one so it can
+                    // keep answering instead of panicking on the next request.
+                    self.guard.put_state(SessionState::new(ttl));
+                    self.lang = Language::EN;
+                    format!(
+                        "{{\"error\":-1,\"message\":\"dispatch task failed: {}\"}}",
+                        join
+                    )
+                }
+            }
         })
     }
 }
@@ -201,7 +238,11 @@ struct JsonRpcSessionFactory {
 impl skf_service::server::SessionFactory for JsonRpcSessionFactory {
     fn create(&self) -> Box<dyn skf_service::server::Session> {
         let guard = SessionGuard::create(&self.registry, SessionState::new(self.ttl));
-        Box::new(JsonRpcSession::new(Arc::clone(&self.ctx), guard))
+        Box::new(JsonRpcSession::new(
+            Arc::clone(&self.ctx),
+            guard,
+            self.ttl,
+        ))
     }
 }
 
@@ -298,7 +339,7 @@ fn session_authorized(
     state.authorize(&AuthKey::new(provider, device, application))
 }
 
-async fn handle_request(
+fn handle_request(
     ctx: &SkfContext,
     state: &mut SessionState,
     text: &str,
@@ -331,23 +372,20 @@ async fn handle_request(
                 .unwrap_or(&ctx.config.default);
 
              if provider == ctx.config.default {
-                 // The vendor call blocks until an event arrives, so it must stay
-                 // on the blocking pool. Running it on a runtime worker instead
-                 // made a concurrent CancelWaitForDevEvent block as well, which
-                 // deadlocked the pair. The message format ({:#X}, unpadded) is
+                 // The whole dispatcher already runs on the blocking pool, so the
+                 // blocking vendor wait can be called directly. It must not take
+                 // the FFI gate (it does not) or it would deadlock against
+                 // CancelWaitForDevEvent. The message format ({:#X}, unpadded) is
                  // reproduced exactly because the recorded contract asserts on it.
-                 let provider_handle = Arc::clone(&ctx.provider);
-                 let waited = tokio::task::spawn_blocking(move || provider_handle.wait_for_event(256)).await;
-                 return match waited {
-                     Ok(Ok((device_name, event))) => RpcResponse::ok(
+                 return match ctx.provider.wait_for_event(256) {
+                     Ok((device_name, event)) => RpcResponse::ok(
                          serde_json::json!({ "deviceName": device_name, "event": event }),
                          id,
                      ),
-                     Ok(Err(ProviderError::Native { code, .. })) => {
+                     Err(ProviderError::Native { code, .. }) => {
                          RpcResponse::err(code as i32, format!("WaitForDevEvent failed: {:#X}", code), id)
                      }
-                     Ok(Err(e)) => provider_load_failed(&e, lang, id),
-                     Err(e) => RpcResponse::err(-1, format!("Task panicked: {}", e), id),
+                     Err(e) => provider_load_failed(&e, lang, id),
                  };
              }
 
@@ -362,29 +400,23 @@ async fn handle_request(
                  }
              };
 
-             let res = tokio::task::spawn_blocking(move || {
-                 let mut dev_name = [0u8; 256];
-                 let mut dev_name_len = 256;
-                 let mut event = 0;
-                 let rv = api.wait_for_dev_event(dev_name.as_mut_ptr() as *mut CHAR, &mut dev_name_len, &mut event);
-                 (rv, dev_name, dev_name_len, event)
-             }).await;
-
-             match res {
-                 Ok((0, dev_name, dev_name_len, event)) => {
-                     let len_usize = dev_name_len as usize;
-                     let actual_len = if len_usize <= 256 { len_usize } else { 256 };
-                     let name_str = String::from_utf8_lossy(&dev_name[..actual_len])
-                         .trim_end_matches(char::from(0))
-                         .to_string();
-                     RpcResponse::ok(serde_json::json!({ "deviceName": name_str, "event": event }), id)
-                 }
-                 Ok((rv, _, _, _)) => {
-                     RpcResponse::err(rv as i32, format!("WaitForDevEvent failed: {:#X}", rv), id)
-                 }
-                 Err(e) => {
-                     RpcResponse::err(-1, format!("Task panicked: {}", e), id)
-                 }
+             let mut dev_name = [0u8; 256];
+             let mut dev_name_len = 256;
+             let mut event = 0;
+             let rv = api.wait_for_dev_event(
+                 dev_name.as_mut_ptr() as *mut CHAR,
+                 &mut dev_name_len,
+                 &mut event,
+             );
+             if rv == SAR_OK {
+                 let len_usize = dev_name_len as usize;
+                 let actual_len = if len_usize <= 256 { len_usize } else { 256 };
+                 let name_str = String::from_utf8_lossy(&dev_name[..actual_len])
+                     .trim_end_matches(char::from(0))
+                     .to_string();
+                 RpcResponse::ok(serde_json::json!({ "deviceName": name_str, "event": event }), id)
+             } else {
+                 RpcResponse::err(rv as i32, format!("WaitForDevEvent failed: {:#X}", rv), id)
              }
         },
         "EnumProvider" => {
@@ -620,7 +652,7 @@ async fn handle_request(
         },
         "DeleteContainer" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::DeleteContainer::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::container::DeleteContainer::handle(ctx, state, &params, lang);
         },
         "IssueCertificate" => {
              // Params: [csr_base64_or_pem, double?]
@@ -940,11 +972,11 @@ async fn handle_request(
         },
         "ImportCertificate" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::ImportCertificate::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::container::ImportCertificate::handle(ctx, state, &params, lang);
         },
         "SignData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::SignData::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::crypto::SignData::handle(ctx, state, &params, lang);
         },
          "ImportKeyPair" => {
               // Params: [providerName, deviceName, appName, containerName, alg, encKeyPair, wrapKey?, sm4Mode?]
@@ -1301,19 +1333,19 @@ async fn handle_request(
         },
         "CheckPIN" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::pin::CheckPIN::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::pin::CheckPIN::handle(ctx, state, &params, lang);
         },
         "CreatePKCS10" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::CreatePKCS10::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::crypto::CreatePKCS10::handle(ctx, state, &params, lang);
         },
         "EncryptData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::EncryptData::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::crypto::EncryptData::handle(ctx, state, &params, lang);
         },
         "DecryptData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::DecryptData::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::crypto::DecryptData::handle(ctx, state, &params, lang);
         },
         "GetDevInfo" => {
             // Params: [providerName, deviceName]
@@ -1576,15 +1608,15 @@ async fn handle_request(
         },
         "CreateContainer" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::CreateContainer::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::container::CreateContainer::handle(ctx, state, &params, lang);
         },
         "GetContainerType" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::GetContainerType::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::container::GetContainerType::handle(ctx, state, &params, lang);
         },
         "RSASignData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::RSASignData::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::crypto::RSASignData::handle(ctx, state, &params, lang);
         },
         "LockDev" => {
             // Params: [providerName, deviceName, timeout]
@@ -1749,11 +1781,11 @@ async fn handle_request(
         },
         "GenECCKeyPair" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::keys::GenECCKeyPair::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::keys::GenECCKeyPair::handle(ctx, state, &params, lang);
         },
         "GenRSAKeyPair" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::keys::GenRSAKeyPair::handle(ctx, state, &params, lang).await;
+            return skf_service::domain::keys::GenRSAKeyPair::handle(ctx, state, &params, lang);
         },
         "RSAVerify" => {
             // Params: [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]

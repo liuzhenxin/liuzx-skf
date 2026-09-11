@@ -27,7 +27,7 @@ use super::{
 pub struct SignData;
 
 impl SignData {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -166,7 +166,7 @@ impl SignData {
 pub struct RSASignData;
 
 impl RSASignData {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -279,7 +279,7 @@ impl RSASignData {
 pub struct EncryptData;
 
 impl EncryptData {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -433,7 +433,7 @@ impl EncryptData {
 pub struct DecryptData;
 
 impl DecryptData {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -588,7 +588,7 @@ impl DecryptData {
 pub struct CreatePKCS10;
 
 impl CreatePKCS10 {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -934,7 +934,7 @@ mod tests {
         let mut state = authorized_state();
         let p = params(vec![json!("FAKE/dev-a/app-a/cnt-a"), json!("aGVsbG8=")]);
 
-        let response = SignData::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = SignData::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00F1);
         assert_every_resource_released(&fake);
@@ -948,7 +948,7 @@ mod tests {
         let mut state = authorized_state();
         let p = params(vec![json!("FAKE/dev-a/app-a/cnt-a"), json!("aGVsbG8=")]);
 
-        let response = RSASignData::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = RSASignData::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00F2);
         assert_every_resource_released(&fake);
@@ -967,7 +967,7 @@ mod tests {
             json!(1),
         ]);
 
-        let response = EncryptData::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = EncryptData::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00F3);
         assert_every_resource_released(&fake);
@@ -986,7 +986,7 @@ mod tests {
             json!(1),
         ]);
 
-        let response = DecryptData::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = DecryptData::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00F4);
         assert_every_resource_released(&fake);
@@ -1009,7 +1009,7 @@ mod tests {
             json!("cnt-a"),
         ]);
 
-        let response = CreatePKCS10::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = CreatePKCS10::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00F5);
         assert_every_resource_released(&fake);

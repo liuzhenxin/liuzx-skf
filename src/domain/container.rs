@@ -24,7 +24,7 @@ use super::{
 pub struct CreateContainer;
 
 impl CreateContainer {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -114,7 +114,7 @@ impl CreateContainer {
 pub struct DeleteContainer;
 
 impl DeleteContainer {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         _state: &mut SessionState,
         params: &Params<'_>,
@@ -190,7 +190,7 @@ impl DeleteContainer {
 pub struct GetContainerType;
 
 impl GetContainerType {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -293,7 +293,7 @@ impl GetContainerType {
 pub struct ImportCertificate;
 
 impl ImportCertificate {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -480,7 +480,7 @@ mod tests {
             json!("cnt-a"),
         ]);
 
-        let response = CreateContainer::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = CreateContainer::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00FF);
         assert_eq!(fake.call_count(Operation::CloseDevice), 1);
@@ -502,7 +502,7 @@ mod tests {
             json!("cnt-a"),
         ]);
 
-        let response = DeleteContainer::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = DeleteContainer::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00FE);
         assert_eq!(fake.call_count(Operation::CloseDevice), 1);
@@ -523,7 +523,7 @@ mod tests {
             json!("cnt-a"),
         ]);
 
-        let response = GetContainerType::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = GetContainerType::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00FD);
         assert_eq!(fake.call_count(Operation::CloseDevice), 1);
@@ -550,7 +550,7 @@ mod tests {
             json!("aGVsbG8="),
         ]);
 
-        let response = ImportCertificate::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = ImportCertificate::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00FC);
         assert_eq!(fake.call_count(Operation::CloseDevice), 1);

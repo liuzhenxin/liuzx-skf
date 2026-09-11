@@ -21,7 +21,7 @@ use super::{
 pub struct GenECCKeyPair;
 
 impl GenECCKeyPair {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -133,7 +133,7 @@ impl GenECCKeyPair {
 pub struct GenRSAKeyPair;
 
 impl GenRSAKeyPair {
-    pub async fn handle(
+    pub fn handle(
         ctx: &dyn ServerContext,
         state: &mut SessionState,
         params: &Params<'_>,
@@ -280,7 +280,7 @@ mod tests {
             Value::Null,
         ]);
 
-        let response = GenECCKeyPair::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = GenECCKeyPair::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00E1);
         assert_eq!(fake.call_count(Operation::CloseDevice), 1);
@@ -302,7 +302,7 @@ mod tests {
             json!(2048),
         ]);
 
-        let response = GenRSAKeyPair::handle(&ctx, &mut state, &p, &Language::EN).await;
+        let response = GenRSAKeyPair::handle(&ctx, &mut state, &p, &Language::EN);
 
         assert_eq!(response.error, 0x0A00_00E2);
         assert_eq!(fake.call_count(Operation::CloseDevice), 1);

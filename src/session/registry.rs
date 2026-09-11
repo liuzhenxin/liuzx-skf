@@ -73,7 +73,9 @@ impl SessionRegistry {
 pub struct SessionGuard {
     registry: Arc<SessionRegistry>,
     marker: Arc<SessionMarker>,
-    state: SessionState,
+    /// `Option` so a request can move the state onto the blocking pool while it
+    /// runs the dispatcher (Phase 3, TRANS-04) and put it back afterwards.
+    state: Option<SessionState>,
 }
 
 impl SessionGuard {
@@ -84,7 +86,7 @@ impl SessionGuard {
         Self {
             registry: Arc::clone(registry),
             marker,
-            state,
+            state: Some(state),
         }
     }
 
@@ -93,11 +95,25 @@ impl SessionGuard {
     }
 
     pub fn state(&self) -> &SessionState {
-        &self.state
+        self.state.as_ref().expect("session state present")
     }
 
     pub fn state_mut(&mut self) -> &mut SessionState {
-        &mut self.state
+        self.state.as_mut().expect("session state present")
+    }
+
+    /// Move the session state onto the blocking pool for one request.
+    ///
+    /// The caller must return it with [`SessionGuard::put_state`]; while it is
+    /// taken, `state()`/`state_mut()` panic, which is the intended loud failure
+    /// if a request is ever dispatched without its state.
+    pub fn take_state(&mut self) -> SessionState {
+        self.state.take().expect("session state already taken")
+    }
+
+    /// Restore state taken by [`SessionGuard::take_state`].
+    pub fn put_state(&mut self, state: SessionState) {
+        self.state = Some(state);
     }
 }
 
