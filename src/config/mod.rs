@@ -22,8 +22,38 @@ use serde::Deserialize;
 pub struct SkfConfig {
     pub default: String,
     pub vendor: HashMap<String, String>,
+    /// Explicit opt-in for binding the WebSocket listener to a non-loopback
+    /// address. `None`/`Some(false)` means loopback-only.
+    ///
+    /// A **named** field on purpose: an unnamed top-level key would be captured
+    /// by the flattened `libs` map and could break parsing (Phase 2 D-07).
+    #[serde(default)]
+    pub allow_remote: Option<bool>,
     #[serde(flatten)]
     pub libs: HashMap<String, HashMap<String, String>>,
+}
+
+impl SkfConfig {
+    /// Environment variable that opts in at runtime.
+    pub const REMOTE_ENV: &'static str = "SKF_ALLOW_REMOTE";
+
+    /// Whether non-loopback binding is permitted.
+    ///
+    /// YAML `allow_remote: true` or the remote env var set to `1`/`true`
+    /// (case-insensitive) both opt in; either is sufficient. Absent/false
+    /// everywhere means the service is loopback-only.
+    pub fn allows_remote(&self) -> bool {
+        if self.allow_remote == Some(true) {
+            return true;
+        }
+        matches!(
+            std::env::var(Self::REMOTE_ENV)
+                .ok()
+                .as_deref()
+                .map(|v| v.trim().to_ascii_lowercase()),
+            Some(v) if v == "1" || v == "true"
+        )
+    }
 }
 
 /// Read and parse a configuration file.
@@ -282,6 +312,7 @@ mod tests {
         let config = SkfConfig {
             default: "GM3000".to_string(),
             vendor: HashMap::new(),
+            allow_remote: None,
             libs,
         };
 
@@ -302,6 +333,58 @@ mod tests {
             path, "native\\GM3000\\windows\\mtoken_gm3000.dll",
             "the bundled package must load the DLL from its own directory"
         );
+    }
+
+    /// Environment state is process-global, so the remote tests share one lock.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn yaml_allow_remote_true_opts_in() {
+        let _guard = env_lock();
+        std::env::remove_var(SkfConfig::REMOTE_ENV);
+        let yaml = "default: GM3000\nvendor: {}\nallow_remote: true\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        assert!(config.allows_remote());
+        assert!(
+            config.libs.contains_key("GM3000"),
+            "the named field must not swallow the flattened providers"
+        );
+    }
+
+    #[test]
+    fn absent_allow_remote_is_loopback_only() {
+        let _guard = env_lock();
+        std::env::remove_var(SkfConfig::REMOTE_ENV);
+        let config: SkfConfig =
+            serde_yaml::from_str("default: GM3000\nvendor: {}\nGM3000:\n  macos: native/x.dylib\n")
+                .expect("parse");
+        assert!(!config.allows_remote());
+    }
+
+    #[test]
+    fn allow_remote_false_is_loopback_only() {
+        let _guard = env_lock();
+        std::env::remove_var(SkfConfig::REMOTE_ENV);
+        let config: SkfConfig = serde_yaml::from_str(
+            "default: GM3000\nvendor: {}\nallow_remote: false\nGM3000:\n  macos: native/x.dylib\n",
+        )
+        .expect("parse");
+        assert!(!config.allows_remote(), "an explicit false must not opt in");
+    }
+
+    #[test]
+    fn env_var_opts_in() {
+        let _guard = env_lock();
+        let config: SkfConfig =
+            serde_yaml::from_str("default: GM3000\nvendor: {}\nGM3000:\n  macos: native/x.dylib\n")
+                .expect("parse");
+        std::env::set_var(SkfConfig::REMOTE_ENV, "TRUE");
+        assert!(config.allows_remote(), "case-insensitive truthy value must opt in");
+        std::env::remove_var(SkfConfig::REMOTE_ENV);
+        assert!(!config.allows_remote());
     }
 
     #[test]
@@ -328,6 +411,7 @@ mod tests {
         let config = SkfConfig {
             default: "ABSENT".to_string(),
             vendor,
+            allow_remote: None,
             libs,
         };
 
