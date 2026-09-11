@@ -1,9 +1,9 @@
 ---
 phase: 1
 slug: structural-foundation-and-test-seam
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-09-11
 ---
 
@@ -42,15 +42,15 @@ Task IDs are assigned during planning. This map defines the verification contrac
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 01-01-01 | 01 | 1 | FOUND-03 | T-01-01 | Fixture 由重构前二进制录制，绝不由新 fake 生成 | integration | `cargo test --test fixture_oracle` | ❌ W1 | ⬜ pending |
-| 01-01-02 | 01 | 1 | FOUND-03 | T-01-02 | 易变字段在录制时冻结；事后放宽 normalize 视为契约变更 | integration | `cargo test --test contract_fixtures` | ❌ W1 | ⬜ pending |
-| 01-02-01 | 02 | 2 | FOUND-02 | — | N/A | build | `test -f src/lib.rs && grep -c "pub mod" src/lib.rs` | ❌ W2 | ⬜ pending |
-| 01-02-02 | 02 | 2 | FOUND-06 | — | N/A | unit | `cargo test crypto` | ❌ W2 | ⬜ pending |
-| 01-02-03 | 02 | 2 | FOUND-02, D-18/D-19 | — | N/A | unit | `cargo test config` | ❌ W2 | ⬜ pending |
-| 01-03-01 | 03 | 3 | FOUND-04 | T-01-03 | trait 不暴露原生指针；库实例唯一 | unit | `grep -c "Library::new" src/provider/native.rs` == 1 | ❌ W3 | ⬜ pending |
-| 01-03-02 | 03 | 3 | FOUND-05 | T-01-04 | 五类失败注入各自可断言；fake 记录调用序列 | unit | `cargo test provider::fake` | ❌ W3 | ⬜ pending |
-| 01-04-01 | 04 | 4 | FOUND-01, FOUND-02 | — | N/A | build | `cargo test 2>&1 \| grep -E "test result: ok\. [1-9]"` | ❌ W4 | ⬜ pending |
-| 01-04-02 | 04 | 4 | D-20 | — | N/A | build | `cargo check --target i686-pc-windows-gnu` | ❌ W4 | ⬜ pending |
+| 01-01-01 | 01 | 1 | FOUND-03 | T-01-01 | Fixture 由重构前二进制录制，绝不由新 fake 生成 | integration | `cargo test --test fixture_oracle` | ✅ | ✅ green |
+| 01-01-02 | 01 | 1 | FOUND-03 | T-01-02 | 易变字段在录制时冻结；事后放宽 normalize 视为契约变更 | integration | `cargo test --test contract_fixtures` | ✅ | ✅ green |
+| 01-02-01 | 02 | 2 | FOUND-02 | — | N/A | build | `test -f src/lib.rs && grep -c "pub mod" src/lib.rs` | ✅ | ✅ green |
+| 01-02-02 | 02 | 2 | FOUND-06 | — | N/A | unit | `cargo test crypto` | ✅ | ✅ green |
+| 01-02-03 | 02 | 2 | FOUND-02, D-18/D-19 | — | N/A | unit | `cargo test config` | ✅ | ✅ green |
+| 01-03-01 | 03 | 3 | FOUND-04 | T-01-03 | trait 不暴露原生指针；库实例唯一 | unit | `cargo test --test provider_invariants` | ✅ | ✅ green |
+| 01-03-02 | 03 | 3 | FOUND-05 | T-01-04 | 五类失败注入各自可断言；fake 记录调用序列 | unit | `cargo test provider::fake` | ✅ | ✅ green |
+| 01-04-01 | 04 | 4 | FOUND-01, FOUND-02 | — | N/A | build | `cargo test` (42 tests) | ✅ | ✅ green |
+| 01-04-02 | 04 | 4 | D-20 | — | N/A | build | `cargo check --target i686-pc-windows-gnu` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -85,14 +85,35 @@ Task IDs are assigned during planning. This map defines the verification contrac
 
 ## Validation Sign-Off
 
-- [ ] 每个任务具备 `<automated>` 验证命令或 Wave 0 依赖
-- [ ] 采样连续性：不存在连续 3 个任务缺少自动化验证
-- [ ] Wave 0 覆盖全部缺失引用
-- [ ] 无 watch-mode 标志
-- [ ] 反馈延迟 < 30 s
-- [ ] 计划完成后置 `nyquist_compliant: true`
+- [x] 每个任务具备 `<automated>` 验证命令或 Wave 0 依赖
+- [x] 采样连续性：不存在连续 3 个任务缺少自动化验证
+- [x] Wave 0 覆盖全部缺失引用
+- [x] 无 watch-mode 标志
+- [x] 反馈延迟 < 30 s（实测 full suite ~4.2 s）
+- [x] 计划完成后置 `nyquist_compliant: true`
 
-**Approval:** pending
+**Approval:** approved 2026-09-11
+
+---
+
+## Measured Results
+
+开启该表格，命令与实测结果一一对应。
+
+| Check | Command | Result |
+|-------|---------|--------|
+| 无硬件下非零测试 | `cargo test` | 28 lib + 4 oracle + 4 contract + 6 invariant = **42 passed** |
+| 契约重放 | `cargo test --test contract_fixtures` | 37 夹具比对（1 项 shape-checked），0 失败 |
+| oracle 能失败 | `cargo test --test fixture_oracle` | 4 passed（含变异与未声明变更被拒） |
+| provider 不变量 | `cargo test --test provider_invariants` | 6 passed |
+| fake 失败注入 | `cargo test provider::fake` | 10 passed |
+| 纯逻辑 | `cargo test crypto` / `cargo test config` | 7 / 11 passed |
+| Windows 侧编译 | `cargo check --target i686-pc-windows-gnu` | 成功 |
+| 告警 | `cargo check --all-targets` | 0 |
+
+**macOS 上无法验证（转入人工项）：** i686 `Machine=0x014C` 产物校验，需在 Windows 构建机执行 `packaging/windows/build.ps1`。
+
+**FOUND-04 的范围说明（必须连同行、不得单独引用"已通过"）：** provider 抽象覆盖全部操作组，原生实现只加载一次库，且 fake 可注入全部五类失败；但按决策 D-06，本阶段只把 4 个自包含请求分支路由到该抽象，其余 33 个分支在阶段 2 迁移。因此端到端重放对全部 37 个方法验证的是真实派发器，而对 provider 接缝的验证覆盖其中 4 个。
 
 ---
 

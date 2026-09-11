@@ -1,15 +1,7 @@
-// Windows Service (SCM) support: `install` / `uninstall` / `start` / `stop` /
-// `status` subcommands plus the `--service` entry point used by the SCM.
-#[cfg(windows)]
-mod win_service;
-
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use libloading::Library;
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpListener;
-use tokio_tungstenite::accept_async;
-use futures_util::{StreamExt, SinkExt};
 use skf_service::skf::api::SkfApi;
 use skf_service::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM, DEVINFO, SendHandle};
 use skf_service::crypto::*;
@@ -17,9 +9,13 @@ use base64::prelude::*;
 use x509_parser::prelude::*;
 
 use skf_service::config::SkfConfig;
+use skf_service::provider::{ProviderError, SkfProvider};
 
 struct SkfContext {
     config: SkfConfig,
+    /// Injected provider. Four self-contained branches use it in Phase 1; the
+    /// remaining 33 migrate in Phase 2 (decision D-06).
+    provider: Arc<dyn SkfProvider>,
     apis: RwLock<HashMap<String, Arc<SkfApi>>>,
     // Map of "provider/device/app" -> "pin"
     pins: RwLock<HashMap<String, String>>,
@@ -29,9 +25,10 @@ struct SkfContext {
 }
 
 impl SkfContext {
-    fn new(config: SkfConfig) -> Self {
+    fn new(config: SkfConfig, provider: Arc<dyn SkfProvider>) -> Self {
         Self {
             config,
+            provider,
             apis: RwLock::new(HashMap::new()),
             pins: RwLock::new(HashMap::new()),
             hash_handles: RwLock::new(HashMap::new()),
@@ -130,6 +127,10 @@ enum Language {
 }
 
 fn main() -> anyhow::Result<()> {
+    // The library owns transport and the session seam; this binary owns the
+    // dispatcher, so the builder is installed before any server path runs.
+    skf_service::server::install_session_builder(build_sessions);
+
     // Windows Service (SCM) management commands and service entry point.
     // Compiled only on Windows targets; ignored on other platforms.
     #[cfg(windows)]
@@ -137,29 +138,29 @@ fn main() -> anyhow::Result<()> {
         let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
         match argv.get(1).and_then(|a| a.to_str()) {
             Some("install") => {
-                crate::win_service::install()?;
+                skf_service::win_service::install()?;
                 return Ok(());
             }
             Some("uninstall") => {
-                crate::win_service::uninstall()?;
+                skf_service::win_service::uninstall()?;
                 return Ok(());
             }
             Some("start") => {
-                crate::win_service::start()?;
+                skf_service::win_service::start()?;
                 return Ok(());
             }
             Some("stop") => {
-                crate::win_service::stop()?;
+                skf_service::win_service::stop()?;
                 return Ok(());
             }
             Some("status") => {
-                crate::win_service::status()?;
+                skf_service::win_service::status()?;
                 return Ok(());
             }
             Some("--service") => {
                 // Launched by the Service Control Manager. Blocks until the
                 // service is stopped, then exits the process.
-                return crate::win_service::run();
+                return skf_service::win_service::run();
             }
             _ => {}
         }
@@ -172,124 +173,68 @@ fn main() -> anyhow::Result<()> {
     rt.block_on(run_server(None))
 }
 
-/// Common server bootstrap used by both foreground (console) mode and the
-/// Windows service mode.
+/// Per-connection session: owns the JSON-RPC language state and delegates to
+/// `handle_request`.
 ///
-/// `shutdown` is provided by the Windows service control handler: when the SCM
-/// sends STOP/SHUTDOWN the watch value flips to `true` and the accept loop
-/// exits so that the service can transition to the Stopped state cleanly.
-async fn run_server(shutdown: Option<tokio::sync::watch::Receiver<bool>>) -> anyhow::Result<()> {
-    // Services are launched by the SCM with the current directory set to
-    // %SystemRoot%\System32. Fall back to the directory that contains the
-    // executable so that `config/`, `api/` and relative `native/` library paths
-    // from the YAML config still resolve when running as an installed service.
-    if !std::path::Path::new("config/skf.yaml").exists() {
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                log::info!("changing working directory to {}", dir.display());
-                let _ = std::env::set_current_dir(dir);
-            }
-        }
-    }
-
-    let cfg_path =
-        std::env::var("SKF_CONFIG").unwrap_or_else(|_| "config/skf.yaml".to_string());
-    let cfg_text = std::fs::read_to_string(&cfg_path)
-        .map_err(|e| anyhow::anyhow!("failed to read config '{}': {}", cfg_path, e))?;
-    let cfg: SkfConfig = serde_yaml::from_str(&cfg_text)?;
-
-    // Initialize empty context with config
-    let ctx = Arc::new(SkfContext::new(cfg));
-
-    // --- HTTP Server for the API demo page ---
-    // Serves the "api" directory. In console mode it binds 0.0.0.0:8000 so the
-    // demo page is reachable over the LAN; as an installed Windows service it
-    // binds 127.0.0.1:8000 to avoid triggering the Windows firewall on first
-    // launch (override either way with SKF_HTTP_ADDR=ip:port).
-    let http_addr: std::net::SocketAddr = match std::env::var("SKF_HTTP_ADDR") {
-        Ok(addr) => addr
-            .parse()
-            .map_err(|e| anyhow::anyhow!("invalid SKF_HTTP_ADDR '{}': {}", addr, e))?,
-        Err(_) => {
-            let default = if shutdown.is_some() {
-                "127.0.0.1:8000"
-            } else {
-                "0.0.0.0:8000"
-            };
-            default
-                .parse()
-                .map_err(|e| anyhow::anyhow!("invalid default HTTP addr '{}': {}", default, e))?
-        }
-    };
-
-    tokio::spawn(async move {
-        let api_route = warp::fs::dir("api");
-        println!("HTTP Server serving 'api' directory on http://{}", http_addr);
-        warp::serve(api_route).run(http_addr).await;
-    });
-    // --------------------------------------
-
-    let ws_addr =
-        std::env::var("SKF_WS_ADDR").unwrap_or_else(|_| "127.0.0.1:9001".to_string());
-    let listener = TcpListener::bind(&ws_addr)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to bind WebSocket listener on {}: {}", ws_addr, e))?;
-    println!("SKF Service listening on ws://{}", ws_addr);
-
-    // Accept loop. In service mode we stop as soon as the SCM requests a stop.
-    match shutdown {
-        Some(mut stop) => {
-            loop {
-                tokio::select! {
-                    changed = stop.changed() => {
-                        match changed {
-                            Ok(()) => log::info!("service stop requested, shutting down"),
-                            Err(_) => log::info!("service stop channel closed, shutting down"),
-                        }
-                        break;
-                    }
-                    accepted = listener.accept() => {
-                        match accepted {
-                            Ok((stream, _)) => spawn_ws_client(ctx.clone(), stream),
-                            Err(e) => {
-                                log::error!("WebSocket accept error: {}", e);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None => {
-            while let Ok((stream, _)) = listener.accept().await {
-                spawn_ws_client(ctx.clone(), stream);
-            }
-        }
-    }
-    Ok(())
+/// The dispatcher stays in this binary (decision D-06); the library only knows
+/// about the `Session` trait.
+struct JsonRpcSession {
+    ctx: Arc<SkfContext>,
+    lang: Language,
 }
 
-/// Spawn a task that upgrades the TCP stream to WebSocket and dispatches
-/// JSON-RPC 2.0 requests to `handle_request`.
-fn spawn_ws_client(ctx: Arc<SkfContext>, stream: tokio::net::TcpStream) {
-    tokio::spawn(async move {
-        let mut ws = match accept_async(stream).await {
-            Ok(ws) => ws,
-            Err(_) => return,
-        };
-        let mut lang = Language::EN; // Default to English
-        while let Some(msg) = ws.next().await {
-            match msg {
-                Ok(msg) if msg.is_text() => {
-                    let text = msg.to_text().unwrap();
-                    let resp = handle_request(&ctx, text, &mut lang).await;
-                    let reply_str = serde_json::to_string(&resp).unwrap();
-                    let _ = ws.send(tungstenite::Message::Text(reply_str)).await;
-                }
-                _ => {}
-            }
+impl JsonRpcSession {
+    fn new(ctx: Arc<SkfContext>) -> Self {
+        Self {
+            ctx,
+            // The pre-refactor server defaulted every connection to English.
+            lang: Language::EN,
         }
-    });
+    }
+}
+
+impl skf_service::server::Session for JsonRpcSession {
+    fn handle<'a>(&'a mut self, text: &'a str) -> futures_util::future::BoxFuture<'a, String> {
+        Box::pin(async move {
+            let response = handle_request(&self.ctx, text, &mut self.lang).await;
+            serde_json::to_string(&response).unwrap_or_else(|e| {
+                format!("{{\"error\":-1,\"message\":\"serialize failed: {}\"}}", e)
+            })
+        })
+    }
+}
+
+/// Session factory handed to the server for every accepted connection.
+struct JsonRpcSessionFactory {
+    ctx: Arc<SkfContext>,
+}
+
+impl skf_service::server::SessionFactory for JsonRpcSessionFactory {
+    fn create(&self) -> Box<dyn skf_service::server::Session> {
+        Box::new(JsonRpcSession::new(Arc::clone(&self.ctx)))
+    }
+}
+
+/// Builds the session factory from the configuration and provider the server
+/// resolved. Installed once at startup so Windows service mode can reach it: the
+/// SCM entry point cannot receive user data.
+fn build_sessions(
+    config: &SkfConfig,
+    provider: &Arc<dyn SkfProvider>,
+) -> Box<dyn skf_service::server::SessionFactory> {
+    let ctx = Arc::new(SkfContext::new(config.clone(), Arc::clone(provider)));
+    Box::new(JsonRpcSessionFactory { ctx })
+}
+
+/// Run the server in console mode using the library bootstrap.
+async fn run_server(shutdown: Option<tokio::sync::watch::Receiver<bool>>) -> anyhow::Result<()> {
+    skf_service::server::run_server(
+        skf_service::server::ServerOptions::from_env(skf_service::server::RunMode::Console),
+        skf_service::server::NativeProviderFactory,
+        shutdown,
+        None,
+    )
+    .await
 }
 
 /// Convert a hex string to bytes
@@ -298,6 +243,19 @@ fn temp_file_path(file_name: &str) -> String {
         .join(file_name)
         .to_string_lossy()
         .into_owned()
+}
+
+
+/// Map a provider failure onto the pre-refactor RPC error shape.
+///
+/// The recorded v0.2.0 contract asserts on these codes and messages, so the
+/// wording is reproduced deliberately rather than derived from `Display`.
+fn provider_load_failed(err: &ProviderError, lang: &Language) -> RpcResponse {
+    let msg = match lang {
+        Language::CN => format!("加载库失败: {}", err),
+        Language::EN => format!("Load Lib Failed: {}", err),
+    };
+    RpcResponse::err(-5, msg, None)
 }
 
 async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> RpcResponse {
@@ -326,6 +284,31 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              let provider = req.params.get(0)
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
+
+             if provider == ctx.config.default {
+                 // The vendor call blocks until an event arrives, so it must stay
+                 // on the blocking pool. Running it on a runtime worker instead
+                 // made a concurrent CancelWaitForDevEvent block as well, which
+                 // deadlocked the pair. The message format ({:#X}, unpadded) is
+                 // reproduced exactly because the recorded contract asserts on it.
+                 let provider_handle = Arc::clone(&ctx.provider);
+                 let waited = tokio::task::spawn_blocking(move || provider_handle.wait_for_event(256)).await;
+                 return match waited {
+                     Ok(Ok((device_name, event))) => RpcResponse::ok(
+                         serde_json::json!({ "deviceName": device_name, "event": event }),
+                         id,
+                     ),
+                     Ok(Err(ProviderError::Native { code, .. })) => {
+                         RpcResponse::err(code as i32, format!("WaitForDevEvent failed: {:#X}", code), id)
+                     }
+                     Ok(Err(e)) => {
+                         let mut resp = provider_load_failed(&e, lang);
+                         resp.id = id;
+                         resp
+                     }
+                     Err(e) => RpcResponse::err(-1, format!("Task panicked: {}", e), id),
+                 };
+             }
 
              let api = match ctx.get_api(provider) {
                  Ok(a) => a,
@@ -393,7 +376,27 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
              let provider = req.params.get(0)
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
- 
+
+             // Phase 1 routes the default alias through the provider. A request
+             // naming another alias keeps the original direct path, so behaviour
+             // is unchanged for providers the factory does not build.
+             if provider == ctx.config.default {
+                 return match ctx.provider.enum_devices(true) {
+                     Ok(names) => RpcResponse::ok(serde_json::json!(names), id),
+                     Err(ProviderError::Native { code, .. }) => {
+                         let msg = match lang {
+                             Language::CN => "枚举设备获取大小失败",
+                             Language::EN => "EnumDev failed size check",
+                         };
+                         RpcResponse::err(code as i32, msg.into(), id)
+                     }
+                     Err(e) => {
+                         let mut resp = provider_load_failed(&e, lang);
+                         resp.id = id;
+                         resp
+                     }
+                 };
+             }
              let api = match ctx.get_api(provider) {
                  Ok(a) => a,
                  Err(e) => {
@@ -2381,6 +2384,37 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                 None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
             };
 
+            // Routed through the provider for the default alias only.
+            if prov_name == ctx.config.default {
+                return match ctx.provider.device_state(dev_name) {
+                    Ok(dev_state) => {
+                        // State: 0=absent, 1=present, 2=busy
+                        let state_str = match dev_state {
+                            0 => "absent",
+                            1 => "present",
+                            2 => "busy",
+                            _ => "unknown",
+                        };
+                        RpcResponse::ok(serde_json::json!({
+                            "state": dev_state,
+                            "stateStr": state_str,
+                        }), id)
+                    }
+                    Err(ProviderError::Native { code, .. }) => {
+                        let msg = match lang {
+                            Language::CN => format!("获取设备状态失败: 0x{:08X}", code),
+                            Language::EN => format!("GetDevState failed: 0x{:08X}", code),
+                        };
+                        RpcResponse::err(code as i32, msg, id)
+                    }
+                    Err(e) => {
+                        let mut resp = provider_load_failed(&e, lang);
+                        resp.id = id;
+                        resp
+                    }
+                };
+            }
+
             let api = match ctx.get_api(prov_name) {
                 Ok(a) => a,
                 Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
@@ -2950,26 +2984,25 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
             RpcResponse::ok(serde_json::json!(resp_b64), id)
         },
         "CancelWaitForDevEvent" => {
-            let api = match ctx.get_api(&ctx.config.default) {
-                Ok(a) => a,
+            match ctx.provider.cancel_wait_for_event() {
+                Ok(()) => RpcResponse::ok(serde_json::json!(true), id),
+                Err(ProviderError::Native { code, .. }) => {
+                    let msg = match lang {
+                        Language::CN => format!("取消等待失败: 0x{:08X}", code),
+                        Language::EN => format!("CancelWaitForDevEvent failed: 0x{:08X}", code),
+                    };
+                    RpcResponse::err(code as i32, msg, id)
+                }
                 Err(e) => {
+                    // The pre-refactor path used -1 for a load failure here,
+                    // unlike the -5 used by the other branches.
                     let msg = match lang {
                         Language::CN => format!("加载库失败: {}", e),
                         Language::EN => format!("Load Lib Failed: {}", e),
                     };
-                    return RpcResponse::err(-1, msg, id);
+                    RpcResponse::err(-1, msg, id)
                 }
-            };
-
-            let ret = api.cancel_wait_for_dev_event();
-            if ret != SAR_OK {
-                let msg = match lang {
-                    Language::CN => format!("取消等待失败: 0x{:08X}", ret),
-                    Language::EN => format!("CancelWaitForDevEvent failed: 0x{:08X}", ret),
-                };
-                return RpcResponse::err(ret as i32, msg, id);
             }
-            RpcResponse::ok(serde_json::json!(true), id)
         },
         "GenECCKeyPair" => {
             // Params: [providerName, deviceName, appName, containerName, algId]

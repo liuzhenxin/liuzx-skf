@@ -22,7 +22,6 @@
 //! The SCM entry point (`service_dispatcher::start`) must be called from the
 //! main thread, which is why `run()` is invoked directly from `main()`.
 
-#![cfg(windows)]
 
 use std::ffi::OsString;
 use std::os::windows::io::AsRawHandle;
@@ -265,7 +264,12 @@ fn run_service() -> Result<()> {
     // foreground mode. run_server() returns as soon as the stop watch flips.
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow!("unable to create Tokio runtime: {e}"))?;
-    let server_result = rt.block_on(crate::run_server(Some(stop_rx)));
+    let server_result = rt.block_on(crate::server::run_server(
+        crate::server::ServerOptions::from_env(crate::server::RunMode::Service),
+        crate::server::NativeProviderFactory,
+        Some(stop_rx),
+        None,
+    ));
     drop(rt);
 
     // Report Stopped so the SCM considers the service stopped.
