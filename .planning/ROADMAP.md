@@ -10,7 +10,7 @@ v0.3.0 将当前可运行但未加固的服务转变为可验证、可运维的�
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Structural Foundation and Test Seam** - 拆分为 library crate，固化 v0.2.0 契约夹具，建立 provider 抽象与可注入失败的 fake
+- [x] **Phase 1: Structural Foundation and Test Seam** - 拆分为 library crate，固化 v0.2.0 契约夹具，建立 provider 抽象与可注入失败的 fake (completed 2026-09-11)
 - [ ] **Phase 2: Session Authorization and Resource Ownership** - 以会话隔离授权，用不透明标识替代原生句柄，确定性释放资源
 - [ ] **Phase 3: Transport Hardening and Concurrency** - 建立帧/载荷/连接/时长边界，阻塞 FFI 移出异步 worker，按设备串行化
 - [ ] **Phase 4: Format/Lint Normalization and CI Gate** - 归一化格式与 lint，启用会真正阻断合并的 CI 门禁
@@ -35,7 +35,7 @@ Plans:
 - [x] 01-01: 录制并冻结 v0.2.0 契约夹具（重构前完成，含 oracle 自检）
 - [x] 01-02: library crate 拆分与纯逻辑提取（crypto/、config/ 单测）
 - [x] 01-03: SKF provider 抽象与可注入失败的 fake（含不变量测试）
-- [ ] 01-04: provider 注入、临时端口服务器、端到端契约重放与 Windows 构建验证
+- [x] 01-04: provider 注入、临时端口服务器、端到端契约重放与 Windows 构建验证
 
 ### Phase 2: Session Authorization and Resource Ownership
 **Goal**: 消除共享凭据与客户端可控原生句柄两个最严重缺陷：授权按会话隔离并自动失效，所有原生资源有明确归属和确定性释放。
@@ -127,7 +127,7 @@ Phase 5 is file-disjoint from Phases 2-4 and may be executed in parallel if sche
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Structural Foundation and Test Seam | 3/4 | In Progress|  |
+| 1. Structural Foundation and Test Seam | 4/4 | Complete   | 2026-09-11 |
 | 2. Session Authorization and Resource Ownership | 0/3 | Not started | - |
 | 3. Transport Hardening and Concurrency | 0/2 | Not started | - |
 | 4. Format/Lint Normalization and CI Gate | 0/2 | Not started | - |
