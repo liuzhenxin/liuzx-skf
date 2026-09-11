@@ -47,12 +47,13 @@ Plans:
   3. After PIN verification no persistent structure retains a recoverable copy of the PIN value
   4. Clients reference devices, applications, containers, and streaming crypto objects only through opaque identifiers, and an unknown, expired, or wrong-kind identifier is rejected
   5. Native resources are released on disconnect (including abrupt disconnect), on native error paths, and when a session ends; streaming digest state cannot be observed or reused by another session
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01: 会话骨架与注册表（ID 生成、`Weak` marker、按值持有状态）
+- [ ] 02-02: 每会话授权与 TTL（环境变量读取、三条清除路径、PIN 不保留）
+- [ ] 02-03: 不透明句柄（会话级句柄表、拒绝语义、V-1/V-2 回归）
+- [ ] 02-04: 协议层抽取 + 12 分支迁移至 domain/ + 错误路径释放验证
 
 ### Phase 3: Transport Hardening and Concurrency
 **Goal**: 让服务在异常输入、缓慢设备与并发客户端下保持有界行为，并把厂商 DLL 的阻塞与线程安全风险限制在受控边界内。
