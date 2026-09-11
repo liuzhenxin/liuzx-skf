@@ -27,11 +27,11 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 ### Resource Ownership (RES)
 
-- [ ] **RES-01**: Clients reference devices, applications, containers, and streaming crypto objects only through server-issued opaque identifiers
-- [ ] **RES-02**: The service rejects an opaque identifier that is unknown, expired, or of the wrong kind
-- [ ] **RES-03**: Native SKF resources owned by a session are released when the session ends, including on abrupt disconnect
+- [x] **RES-01**: Clients reference devices, applications, containers, and streaming crypto objects only through server-issued opaque identifiers
+- [x] **RES-02**: The service rejects an opaque identifier that is unknown, expired, or of the wrong kind
+- [x] **RES-03**: Native SKF resources owned by a session are released when the session ends, including on abrupt disconnect
 - [ ] **RES-04**: Native SKF resources are released on native error paths, not only on success
-- [ ] **RES-05**: Streaming digest state is session-scoped and cannot be observed or reused by another session
+- [x] **RES-05**: Streaming digest state is session-scoped and cannot be observed or reused by another session
 
 ### Transport Hardening (TRANS)
 
@@ -142,11 +142,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SESS-04 | Phase 2 | Pending |
 | SESS-05 | Phase 2 | Complete |
 | SESS-06 | Phase 2 | Complete |
-| RES-01 | Phase 2 | Pending |
-| RES-02 | Phase 2 | Pending |
-| RES-03 | Phase 2 | Pending |
+| RES-01 | Phase 2 | Complete |
+| RES-02 | Phase 2 | Complete |
+| RES-03 | Phase 2 | Complete |
 | RES-04 | Phase 2 | Pending |
-| RES-05 | Phase 2 | Pending |
+| RES-05 | Phase 2 | Complete |
 | TRANS-01 | Phase 3 | Pending |
 | TRANS-02 | Phase 3 | Pending |
 | TRANS-03 | Phase 3 | Pending |
