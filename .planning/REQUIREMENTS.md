@@ -40,7 +40,7 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 - [x] **TRANS-03**: Long-running device operations are bounded or cancellable so a stalled token cannot block unrelated clients
 - [x] **TRANS-04**: Blocking vendor calls execute off the async runtime worker threads
 - [x] **TRANS-05**: Native device access is serialized per device so no two tasks use the same handle concurrently
-- [ ] **TRANS-06**: The service refuses to bind a non-loopback address unless explicitly opted in by configuration
+- [x] **TRANS-06**: The service refuses to bind a non-loopback address unless explicitly opted in by configuration
 - [ ] **TRANS-07**: Destructive operations (delete container, import key/certificate, lock device, set label) are distinguishable from read-only operations through a documented classification
 
 ### Code Quality and CI (QUAL)
@@ -152,7 +152,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | TRANS-03 | Phase 3 | Complete |
 | TRANS-04 | Phase 3 | Complete |
 | TRANS-05 | Phase 3 | Complete |
-| TRANS-06 | Phase 3 | Pending |
+| TRANS-06 | Phase 3 | Complete |
 | TRANS-07 | Phase 3 | Pending |
 | QUAL-01 | Phase 4 | Pending |
 | QUAL-02 | Phase 4 | Pending |
