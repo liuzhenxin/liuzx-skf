@@ -10,7 +10,7 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 
 应用能够通过稳定、安全且与厂商实现解耦的统一接口访问 USB Key 的硬件密码能力。
 
-## Current Milestone: v0.3.0 Production Hardening
+## Current Milestone: v0.3.0 Production Hardening (Phase 1 of 6 complete)
 
 **Goal:** 在保持 v0.2.0 GM3000 接口和部署兼容性的同时，建立安全会话、受控句柄、可测试架构以及可观测、可恢复的 Windows 服务运行基础。
 
@@ -25,6 +25,10 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 
 ### Validated
 
+- ✓ v0.2.0 的 37 个 JSON-RPC 方法的请求/响应契约已被夹具冻结，并在每次改动后端到端重放校验 — Phase 1（`tests/fixtures/v0.2.0/`、`tests/contract_fixtures.rs`）
+- ✓ 服务可拆为 library + thin binary，42 个测试在无硬件、无驱动、无网络下运行 — Phase 1（`src/lib.rs`）
+- ✓ SKF 调用具备可替换的 provider 抽象，原生实现只加载一次厂商库，fake 可注入五类失败 — Phase 1（`src/provider/`）
+- ✓ 服务可在临时端口上启动并回报真实绑定地址，支持端到端自动化 — Phase 1（`src/server/mod.rs`）
 - ✓ 服务可以通过 WebSocket JSON-RPC 风格接口暴露设备、应用、容器、证书和密码操作 — existing/v0.2.0
 - ✓ 服务可以根据 `config/skf.yaml` 在运行时加载不同平台、不同厂商的 SKF 动态库 — existing
 - ✓ 已支持 SM2、SM3、SM4、RSA 相关的密钥、签名、验签、哈希及加解密流程 — existing
@@ -34,7 +38,7 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 
 ### Active
 
-- [ ] 每个客户端会话拥有独立授权状态，断开或超时后授权自动失效，服务不长期保存可恢复的明文 PIN
+- [x] 每个客户端会话拥有独立授权状态，断开或超时后授权自动失效，服务不长期保存可恢复的明文 PIN — 仍待阶段 2 实现（Phase 1 只建立了可承载该状态的 `Session` 接缝）
 - [ ] 客户端只接触服务生成的不透明资源 ID，不能把任意数字作为原生 SKF 句柄传给厂商库
 - [ ] 设备、应用、容器和流式密码资源在成功、失败、断连及拔出场景都能确定性释放
 - [ ] 协议入口限制连接、帧、载荷、并发和执行时间，并区分只读与危险操作
@@ -105,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-11 after GSD initialization for v0.3.0*
+*Last updated: 2026-09-11 after Phase 1 (Structural Foundation and Test Seam)*
