@@ -1137,6 +1137,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "skf-service",
  "smcrypto",
  "tokio",
  "tokio-tungstenite",
