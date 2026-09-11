@@ -607,7 +607,9 @@ fn block_cipher_param(iv: &[u8], padding: u32) -> BLOCKCIPHERPARAM {
     let mut param: BLOCKCIPHERPARAM = unsafe { std::mem::zeroed() };
     let copy_len = iv.len().min(param.IV.len());
     param.IV[..copy_len].copy_from_slice(&iv[..copy_len]);
-    param.IVLen = copy_len as ULONG;
+    // The length is the caller's declared IV length, not the copied prefix: the
+    // pre-refactor branch set `IVLen = iv_bytes.len()` and copied at most 32 bytes.
+    param.IVLen = iv.len() as ULONG;
     param.PaddingType = padding;
     param
 }

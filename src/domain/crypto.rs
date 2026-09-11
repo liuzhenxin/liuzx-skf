@@ -300,7 +300,15 @@ impl EncryptData {
             Err(e) => return e,
         };
         let padding_type = params.optional_u64(3, 1) as ULONG;
-        let sym_key_b64 = params.optional_str(4, "");
+        // Distinguish an absent key from a present-but-empty one: the pre-refactor
+        // code decoded `""` to a zero-byte key and rejected it as the wrong length.
+        let sym_key_bytes = match params.raw(4).and_then(|v| v.as_str()) {
+            Some(encoded) => match base64::engine::general_purpose::STANDARD.decode(encoded) {
+                Ok(b) => Some(b),
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
+            },
+            None => None,
+        };
 
         let parts = match split_cert_key(cert_key, 4) {
             Some(p) => p,
@@ -324,15 +332,6 @@ impl EncryptData {
             Ok(b) => b,
             Err(e) => return RpcResponse::err(-2, format!("Invalid base64 IV: {}", e), id),
         };
-        let sym_key_bytes = if sym_key_b64.is_empty() {
-            None
-        } else {
-            match base64::engine::general_purpose::STANDARD.decode(sym_key_b64) {
-                Ok(b) => Some(b),
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
-            }
-        };
-
         let provider = match ctx.resolve(prov_name) {
             Ok(p) => p,
             Err(e) => return load_failed(e, id),
@@ -455,7 +454,15 @@ impl DecryptData {
             Err(e) => return e,
         };
         let padding_type = params.optional_u64(3, 1) as ULONG;
-        let sym_key_b64 = params.optional_str(4, "");
+        // Distinguish an absent key from a present-but-empty one: the pre-refactor
+        // code decoded `""` to a zero-byte key and rejected it as the wrong length.
+        let sym_key_bytes = match params.raw(4).and_then(|v| v.as_str()) {
+            Some(encoded) => match base64::engine::general_purpose::STANDARD.decode(encoded) {
+                Ok(b) => Some(b),
+                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
+            },
+            None => None,
+        };
 
         let parts = match split_cert_key(cert_key, 4) {
             Some(p) => p,
@@ -482,15 +489,6 @@ impl DecryptData {
             Ok(b) => b,
             Err(e) => return RpcResponse::err(-2, format!("Invalid base64 IV: {}", e), id),
         };
-        let sym_key_bytes = if sym_key_b64.is_empty() {
-            None
-        } else {
-            match base64::engine::general_purpose::STANDARD.decode(sym_key_b64) {
-                Ok(b) => Some(b),
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
-            }
-        };
-
         let provider = match ctx.resolve(prov_name) {
             Ok(p) => p,
             Err(e) => return load_failed(e, id),
