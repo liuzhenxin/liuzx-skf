@@ -1,57 +1,46 @@
 {
   "version": "1.0",
-  "timestamp": "2026-09-11T17:05:00.000Z",
+  "timestamp": "2026-09-11T18:50:00.000Z",
   "phase": "02",
   "phase_name": "session-authorization-and-resource-ownership",
   "phase_dir": ".planning/phases/02-session-authorization-and-resource-ownership",
-  "plan": 3,
+  "plan": 4,
   "task": 1,
   "total_tasks": 14,
   "status": "paused",
   "completed_tasks": [
     {"id": "02-01", "name": "Session skeleton and registry", "status": "done", "commit": "a4d849a"},
-    {"id": "02-02", "name": "Per-session authorization with expiry", "status": "done", "commit": "43506b0"}
+    {"id": "02-02", "name": "Per-session authorization with expiry", "status": "done", "commit": "43506b0"},
+    {"id": "02-03", "name": "Opaque session-owned handles", "status": "done", "commit": "fed1550"}
   ],
   "remaining_tasks": [
-    {"id": "02-03", "name": "Opaque session-owned handles (wave 3, 4 tasks)", "status": "not_started"},
     {"id": "02-04", "name": "Protocol extraction, domain migration, release-on-error (wave 4, 4 tasks)", "status": "not_started"}
   ],
-  "blockers": [
-    {
-      "description": "Abandoned digest handles permanently leak device handles (research V-1): hash_handles is removed only by DigestFinal and CloseHash, with no disconnect cleanup",
-      "type": "technical",
-      "workaround": "Plan 02-03 fixes it; its regression test digest_handle_is_released_on_disconnect must FAIL before the fix and pass after"
-    },
-    {
-      "description": "Six target branches reload the vendor library per call (research V-2), so DigestUpdate hands a handle from library instance L1 to a fresh instance L2",
-      "type": "technical",
-      "workaround": "Plan 02-03/02-04 route these branches through the provider, which owns one Arc<Library>"
-    }
-  ],
+  "blockers": [],
   "human_actions_pending": [
     {
       "action": "Reload ~/Library/LaunchAgents/com.liuzx.skf-service.plist when convenient",
-      "context": "Unloaded during Phase 1 to free ports 9001/8000; Phase 2 tests use ephemeral ports so it is not blocking",
+      "context": "Unloaded during Phase 1 to free ports; phase 2 tests use ephemeral ports so it is not blocking",
       "blocking": false
     },
     {
-      "action": "Suspend the Parallels Windows 10 x64 VM if it is not needed",
-      "context": "It was resumed during Phase 1 while trying to reach it; prlctl exec is unavailable in Parallels Standard so it could not be used, and it was left running",
+      "action": "Suspend the Parallels Windows 10 x64 VM if not needed",
+      "context": "Left running after an attempt to reach it; prlctl exec is unavailable in Parallels Standard",
       "blocking": false
     },
     {
       "action": "Push dev when ready",
-      "context": "local dev is 4 commits ahead of origin/dev (d477948)",
+      "context": "local dev is 8 commits ahead of origin/dev (d477948)",
       "blocking": false
     }
   ],
   "decisions": [
-    {"decision": "Session state is held by value, never behind an Arc", "rationale": "It holds Box<dyn DeviceGuard>, which is Send but not Sync, so Arc<SessionState> would not be Send and the session could not move into a Tokio task; fixing that would need a second unsafe impl Sync", "phase": "02"},
-    {"decision": "The registry stores Weak<SessionMarker> and offers no lookup and no cross-session mutation", "rationale": "Owning sessions would keep their native handles alive past disconnect; a mutator would force a lock into session state", "phase": "02"},
-    {"decision": "Per-operation PIN re-verification removed by design", "rationale": "The PIN is not retained, so the TTL-bounded session grant replaces re-verification", "phase": "02"},
-    {"decision": "Device loss is detected on next use by the session that observes it", "rationale": "Keeps session state lock-free; chosen over a background WaitForDevEvent broadcast", "phase": "02"}
+    {"decision": "A client-supplied integer is never converted to a native handle", "rationale": "That conversion reached the vendor library unchecked and killed the service process; the DisConnectDev fixture was updated as a documented intentional contract change", "phase": "02"},
+    {"decision": "Digest rejection message preserved byte-for-byte while the handle format changed", "rationale": "Only the rejection is recorded by fixtures; DigestInit's success shape is not, so the format was free to change", "phase": "02"},
+    {"decision": "HandleError is a fieldless enum and HandleTable's Debug reports counts only", "rationale": "A rejection must not echo the offending value, and a handle string must never reach a log line", "phase": "02"},
+    {"decision": "Session state is held by value, never behind an Arc", "rationale": "It holds Send-but-not-Sync provider guards, so an Arc would break Send and need a forbidden unsafe impl Sync", "phase": "02"}
   ],
   "uncommitted_files": [],
-  "next_action": "Run /gsd-execute-phase 2. Plan discovery skips 02-01 and 02-02 (both have SUMMARY.md) and starts wave 3 at plan 02-03 task 02-03-01, which creates src/session/handles.rs with HandleTable, ResourceKind, and HandleError.",
-  "context_notes": "Waves 1-2 landed cleanly: 69 tests pass, 0 warnings, 37/37 v0.2.0 fixtures still match. Wave 3 is where the two verified defects are resolved and where RES-01/02/03/05 are earned; wave 4 extracts protocol/ and migrates the remaining 12 branches into domain/, with RES-04 (release on native error paths) verified by injecting failures through the fake provider. Two design invariants are now enforced by tests rather than convention: assert_send::<SessionGuard>() pins the movability property, and registry_does_not_keep_sessions_alive pins the Weak ownership. The digest rejection message ('Invalid or expired hash handle' with -11) is frozen by fixtures for DigestUpdate/DigestFinal/CloseHash, while DigestInit's success shape is NOT recorded, so the handle format may change freely."
+  "next_action": "Run /gsd-execute-phase 2. Discovery skips 02-01..02-03 (all have SUMMARY.md) and runs wave 4 = plan 02-04, whose first task extracts RpcRequest/RpcResponse/Language and typed parameter helpers into src/protocol/ without changing any branch logic.",
+  "context_notes": "Waves 1-3 landed cleanly: 80 tests pass, 0 warnings, 37/37 fixtures match with one documented contract change. Ten of eleven requirements are complete; only RES-04 (release on native error paths) remains, which is why wave 4 exists. Wave 4 is the structurally heaviest step: it extracts protocol/ and moves 12 branches into domain/, so RES-04's verification depends on injecting failures through the fake provider and asserting Close* was recorded. Two precedents now exist that wave 4 must follow: an intentional contract change is recorded in the fixture README plus provenance and never hidden by widening normalize; and after any scripted multi-site edit the diff is read hunk by hunk, because the compiler stayed silent on a degenerate match and an id-less error helper that had already been fixed once as M-04."
 }
