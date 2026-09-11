@@ -50,8 +50,8 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 02-01: 会话骨架与注册表（ID 生成、`Weak` marker、按值持有状态）
-- [ ] 02-02: 每会话授权与 TTL（环境变量读取、三条清除路径、PIN 不保留）
+- [x] 02-01: 会话骨架与注册表（ID 生成、`Weak` marker、按值持有状态）
+- [x] 02-02: 每会话授权与 TTL（环境变量读取、三条清除路径、PIN 不保留）
 - [ ] 02-03: 不透明句柄（会话级句柄表、拒绝语义、V-1/V-2 回归）
 - [ ] 02-04: 协议层抽取 + 12 分支迁移至 domain/ + 错误路径释放验证
 
@@ -129,7 +129,7 @@ Phase 5 is file-disjoint from Phases 2-4 and may be executed in parallel if sche
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Structural Foundation and Test Seam | 4/4 | Complete    | 2026-09-11 |
-| 2. Session Authorization and Resource Ownership | 0/4 | Planned    |  |
+| 2. Session Authorization and Resource Ownership | 2/4 | In Progress|  |
 | 3. Transport Hardening and Concurrency | 0/2 | Not started | - |
 | 4. Format/Lint Normalization and CI Gate | 0/2 | Not started | - |
 | 5. Windows Service Reliability | 0/2 | Not started | - |

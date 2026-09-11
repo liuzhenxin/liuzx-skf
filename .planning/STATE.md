@@ -4,8 +4,8 @@ milestone: v0.3.0
 milestone_name: milestone
 current_phase_name: Session Authorization and Resource Ownership
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-09-11T07:43:48.122Z"
+stopped_at: Completed 02-02 (session authorization); waves 3-4 remain
+last_updated: "2026-09-11T07:51:15.305Z"
 progress:
   total_phases: 6
   completed_phases: 1
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 ## Current Position
 
 Phase: 2 (Session Authorization and Resource Ownership) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 2
+Plan: 2 of 4
+Status: Ready to execute
 Last Activity Description: Phase 2 execution started
 
 Progress: [██░░░░░░░░] 17%  (1/6 phases, 4/4 plans in Phase 1)
@@ -55,6 +55,7 @@ Progress: [██░░░░░░░░] 17%  (1/6 phases, 4/4 plans in Phase 
 | Phase 1 P01 | 42 min | 3 tasks | 40 files |
 | Phase 1 P02 | 55 min | 3 tasks | 45 files |
 | Phase 1 P03 | 70 min | 4 tasks | 8 files |
+| Phase 2 P02 | 75 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,7 @@ Recent decisions affecting current work:
 - `IssueCertificate` stays explicitly mock-only.
 - [Phase 1]: Fixture normalization must be verified across process restarts, not within one process — HashMap iteration order is stable within a process, so EnumProvider's order instability was invisible to a same-process determinism check
 - [Phase 1]: Provider guards store handles as usize instead of raw pointers — A raw pointer is !Send + !Sync, and the crate allows exactly one unsafe impl Send/Sync; integers keep guards thread-safe with no new unsafe block
+- [Phase 2]: Per-operation PIN re-verification removed by design; the session grant is the authorization — The PIN is not retained (SESS-05), so re-verification is impossible; the TTL-bounded grant replaces it
 
 ### Pending Todos
 
@@ -92,6 +94,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T06:59:33.863Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-session-authorization-and-resource-ownership/02-CONTEXT.md
+Last session: 2026-09-11T07:51:15.293Z
+Stopped at: Completed 02-02 (session authorization); waves 3-4 remain
+Resume file: None
