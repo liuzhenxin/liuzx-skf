@@ -68,7 +68,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 03-01: TBD
+- [x] 03-01: TBD
 - [ ] 03-02: TBD
 
 ### Phase 4: Format/Lint Normalization and CI Gate

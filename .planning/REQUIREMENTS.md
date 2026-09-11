@@ -35,8 +35,8 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 ### Transport Hardening (TRANS)
 
-- [ ] **TRANS-01**: The service rejects WebSocket frames and operation payloads exceeding documented limits before allocating them
-- [ ] **TRANS-02**: The service bounds the number of concurrent client connections
+- [x] **TRANS-01**: The service rejects WebSocket frames and operation payloads exceeding documented limits before allocating them
+- [x] **TRANS-02**: The service bounds the number of concurrent client connections
 - [ ] **TRANS-03**: Long-running device operations are bounded or cancellable so a stalled token cannot block unrelated clients
 - [ ] **TRANS-04**: Blocking vendor calls execute off the async runtime worker threads
 - [ ] **TRANS-05**: Native device access is serialized per device so no two tasks use the same handle concurrently
@@ -147,8 +147,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | RES-03 | Phase 2 | Complete |
 | RES-04 | Phase 2 | Complete |
 | RES-05 | Phase 2 | Complete |
-| TRANS-01 | Phase 3 | Pending |
-| TRANS-02 | Phase 3 | Pending |
+| TRANS-01 | Phase 3 | Complete |
+| TRANS-02 | Phase 3 | Complete |
 | TRANS-03 | Phase 3 | Pending |
 | TRANS-04 | Phase 3 | Pending |
 | TRANS-05 | Phase 3 | Pending |
