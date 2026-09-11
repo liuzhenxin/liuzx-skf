@@ -29,6 +29,13 @@ use tungstenite::protocol::WebSocketConfig;
 /// (a 256 KiB operation payload base64-encodes to ~350 KiB).
 pub const MAX_WS_MESSAGE_BYTES: usize = 1024 * 1024;
 
+/// Largest number of concurrent WebSocket connections the service serves.
+///
+/// A connection that cannot acquire a permit is refused before the WebSocket
+/// handshake rather than queued, so a connection storm cannot grow the task set
+/// without bound (TRANS-02, D-14).
+pub const MAX_CONNECTIONS: usize = 64;
+
 use crate::config::SkfConfig;
 use crate::provider::{SkfProvider, native::NativeSkfProvider};
 
@@ -317,6 +324,7 @@ where
     // caller; `serve` only needs it to keep it alive for the process lifetime.
     let _keep_provider = Arc::clone(&prepared.provider);
     let sessions = Arc::new(sessions);
+    let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
 
     match shutdown {
         Some(mut stop) => {
@@ -331,7 +339,9 @@ where
                     }
                     accepted = listener.accept() => {
                         match accepted {
-                            Ok((stream, _)) => spawn_client(Arc::clone(&sessions), stream),
+                            Ok((stream, peer)) => {
+                                admit(Arc::clone(&sessions), Arc::clone(&permits), stream, peer)
+                            }
                             Err(e) => {
                                 log::error!("WebSocket accept error: {}", e);
                                 break;
@@ -342,12 +352,34 @@ where
             }
         }
         None => {
-            while let Ok((stream, _)) = listener.accept().await {
-                spawn_client(Arc::clone(&sessions), stream);
+            while let Ok((stream, peer)) = listener.accept().await {
+                admit(Arc::clone(&sessions), Arc::clone(&permits), stream, peer);
             }
         }
     }
     Ok(())
+}
+
+/// Admit one accepted TCP connection if a slot is free, otherwise refuse it.
+///
+/// Refusing means dropping the socket before the WebSocket handshake, so an
+/// over-limit client never reaches the session factory or the vendor library.
+fn admit<S>(
+    sessions: Arc<S>,
+    permits: Arc<tokio::sync::Semaphore>,
+    stream: tokio::net::TcpStream,
+    peer: std::net::SocketAddr,
+) where
+    S: SessionFactory,
+{
+    match Arc::clone(&permits).try_acquire_owned() {
+        Ok(permit) => spawn_client(sessions, stream, permit),
+        Err(_) => log::warn!(
+            "connection limit {} reached; refusing {}",
+            MAX_CONNECTIONS,
+            peer
+        ),
+    }
 }
 
 /// Bind, then serve, reporting the bound address before entering the loop.
@@ -393,11 +425,16 @@ where
 /// Transport concerns only: the frame is handed to the session, and the session's
 /// reply is written back. Failures are logged rather than propagated because one
 /// misbehaving client must not stop the accept loop.
-fn spawn_client<S>(sessions: Arc<S>, stream: tokio::net::TcpStream)
-where
+fn spawn_client<S>(
+    sessions: Arc<S>,
+    stream: tokio::net::TcpStream,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+) where
     S: SessionFactory,
 {
     tokio::spawn(async move {
+        // Held for the connection's lifetime; dropping it frees the slot.
+        let _keep = _permit;
         let ws_config = WebSocketConfig {
             max_message_size: Some(MAX_WS_MESSAGE_BYTES),
             max_frame_size: Some(MAX_WS_MESSAGE_BYTES),
