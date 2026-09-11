@@ -69,7 +69,7 @@ Plans:
 
 Plans:
 - [x] 03-01: TBD
-- [ ] 03-02: TBD
+- [x] 03-02: TBD
 
 ### Phase 4: Format/Lint Normalization and CI Gate
 **Goal**: 建立真实生效的合并门禁：格式与 lint 基线干净，CI 运行硬件无关测试并在失败时阻断合并。
