@@ -19,7 +19,15 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
-use tokio_tungstenite::accept_async;
+use tungstenite::protocol::WebSocketConfig;
+
+/// Largest WebSocket message the service accepts.
+///
+/// Applied to both the assembled message and a single frame, so an oversized
+/// payload is rejected by tungstenite while reading the frame rather than after
+/// the service has materialised it. 1 MiB is ~2.5x the largest expected payload
+/// (a 256 KiB operation payload base64-encodes to ~350 KiB).
+pub const MAX_WS_MESSAGE_BYTES: usize = 1024 * 1024;
 
 use crate::config::SkfConfig;
 use crate::provider::{SkfProvider, native::NativeSkfProvider};
@@ -390,7 +398,12 @@ where
     S: SessionFactory,
 {
     tokio::spawn(async move {
-        let mut ws = match accept_async(stream).await {
+        let ws_config = WebSocketConfig {
+            max_message_size: Some(MAX_WS_MESSAGE_BYTES),
+            max_frame_size: Some(MAX_WS_MESSAGE_BYTES),
+            ..Default::default()
+        };
+        let mut ws = match tokio_tungstenite::accept_async_with_config(stream, Some(ws_config)).await {
             Ok(ws) => ws,
             Err(e) => {
                 log::debug!("websocket upgrade failed: {}", e);
