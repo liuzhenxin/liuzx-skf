@@ -250,12 +250,20 @@ fn temp_file_path(file_name: &str) -> String {
 ///
 /// The recorded v0.2.0 contract asserts on these codes and messages, so the
 /// wording is reproduced deliberately rather than derived from `Display`.
-fn provider_load_failed(err: &ProviderError, lang: &Language) -> RpcResponse {
+///
+/// The request id is a required parameter: an earlier version returned a
+/// response with `id: None` that every caller had to patch, and a caller that
+/// forgot would have returned an uncorrelatable response that nothing caught.
+fn provider_load_failed(
+    err: &ProviderError,
+    lang: &Language,
+    id: Option<serde_json::Value>,
+) -> RpcResponse {
     let msg = match lang {
         Language::CN => format!("加载库失败: {}", err),
         Language::EN => format!("Load Lib Failed: {}", err),
     };
-    RpcResponse::err(-5, msg, None)
+    RpcResponse::err(-5, msg, id)
 }
 
 async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> RpcResponse {
@@ -301,11 +309,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                      Ok(Err(ProviderError::Native { code, .. })) => {
                          RpcResponse::err(code as i32, format!("WaitForDevEvent failed: {:#X}", code), id)
                      }
-                     Ok(Err(e)) => {
-                         let mut resp = provider_load_failed(&e, lang);
-                         resp.id = id;
-                         resp
-                     }
+                     Ok(Err(e)) => provider_load_failed(&e, lang, id),
                      Err(e) => RpcResponse::err(-1, format!("Task panicked: {}", e), id),
                  };
              }
@@ -390,11 +394,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                          };
                          RpcResponse::err(code as i32, msg.into(), id)
                      }
-                     Err(e) => {
-                         let mut resp = provider_load_failed(&e, lang);
-                         resp.id = id;
-                         resp
-                     }
+                     Err(e) => provider_load_failed(&e, lang, id),
                  };
              }
              let api = match ctx.get_api(provider) {
@@ -2407,11 +2407,7 @@ async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> Rp
                         };
                         RpcResponse::err(code as i32, msg, id)
                     }
-                    Err(e) => {
-                        let mut resp = provider_load_failed(&e, lang);
-                        resp.id = id;
-                        resp
-                    }
+                    Err(e) => provider_load_failed(&e, lang, id),
                 };
             }
 
