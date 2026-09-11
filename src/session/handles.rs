@@ -375,6 +375,42 @@ mod tests {
         assert_eq!(rejection(table.digest(&app_handle)), HandleError::WrongKind);
     }
 
+    /// Regression test for research finding V-1.
+    ///
+    /// Before Phase 2 digest handles lived in a process-global map that was only
+    /// cleaned by DigestFinal and CloseHash. A client that called DigestInit and
+    /// then disconnected left an open device handle behind for the life of the
+    /// process. The handle table makes release a consequence of session teardown,
+    /// so this asserts exactly that.
+    #[test]
+    fn digest_handle_is_released_when_the_session_ends() {
+        let provider = FakeSkfProvider::new("FAKE");
+        {
+            let mut table = HandleTable::new();
+            let device = provider.open_device("dev-a").expect("open device");
+            let device_handle = table.issue_device(device);
+            let digest = table
+                .device(&device_handle)
+                .expect("device")
+                .begin_digest(0x00000001, b"")
+                .expect("begin digest");
+            table.issue_digest(digest);
+
+            // Abandon it: no DigestFinal, no CloseHash — just end the session.
+        }
+
+        assert_eq!(
+            provider.call_count(crate::provider::Operation::CloseDigest),
+            1,
+            "an abandoned digest must still be closed when the session ends"
+        );
+        assert_eq!(
+            provider.call_count(crate::provider::Operation::CloseDevice),
+            1,
+            "its device must be released too, not left open for the process lifetime"
+        );
+    }
+
     /// Dropping the table must release every resource; that is what makes release
     /// on disconnect deterministic.
     #[test]

@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use libloading::Library;
 use serde::{Deserialize, Serialize};
 use skf_service::skf::api::SkfApi;
-use skf_service::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM, DEVINFO, SendHandle};
+use skf_service::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM, DEVINFO};
 use skf_service::crypto::*;
 use base64::prelude::*;
 use x509_parser::prelude::*;
@@ -19,9 +19,6 @@ struct SkfContext {
     /// remaining 33 migrate in Phase 2 (decision D-06).
     provider: Arc<dyn SkfProvider>,
     apis: RwLock<HashMap<String, Arc<SkfApi>>>,
-    // Map of "hash_handle_key" -> (hash_handle, dev_handle, provider, lib_path)
-    // Using SendHandle to make this safe for async contexts
-    hash_handles: RwLock<HashMap<String, (SendHandle, SendHandle, String, String)>>,
 }
 
 impl SkfContext {
@@ -30,7 +27,7 @@ impl SkfContext {
             config,
             provider,
             apis: RwLock::new(HashMap::new()),
-            hash_handles: RwLock::new(HashMap::new()),
+
         }
     }
 
@@ -3207,58 +3204,63 @@ async fn handle_request(
             let id_b64 = req.params.get(3).and_then(|v| v.as_str()).unwrap_or("");
             let id_bytes = if id_b64.is_empty() { Vec::new() } else { BASE64_STANDARD.decode(id_b64).unwrap_or_default() };
 
-            let lib_path = match ctx.get_lib_path(provider) {
-                Ok(p) => p,
-                Err(e) => {
-                    let msg = match lang {
-                        Language::CN => format!("加载库失败: {}", e),
-                        Language::EN => format!("Load Lib Failed: {}", e),
-                    };
-                    return RpcResponse::err(-1, msg, id);
-                }
-            };
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
-
-            let c_dev = std::ffi::CString::new(dev_name).unwrap();
-            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
-            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
-            if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
-            }
-
-            let mut h_hash: HANDLE = std::ptr::null_mut();
-            let ret = api.digest_init(
-                h_dev,
-                alg_id,
-                std::ptr::null_mut(), // no ECC public key for plain hash
-                id_bytes.as_ptr() as *mut BYTE,
-                id_bytes.len() as ULONG,
-                &mut h_hash,
-            );
-            if ret != SAR_OK {
-                api.dis_connect_dev(h_dev);
-                let msg = match lang {
-                    Language::CN => format!("DigestInit失败: 0x{:08X}", ret),
-                    Language::EN => format!("DigestInit failed: 0x{:08X}", ret),
+            if provider != ctx.config.default {
+                // Only the default alias has a provider instance; the others keep
+                // their pre-refactor behaviour until Phase 3 routes them.
+                let api = match ctx.get_api(provider) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        let msg = match lang {
+                            Language::CN => format!("加载库失败: {}", e),
+                            Language::EN => format!("Load Lib Failed: {}", e),
+                        };
+                        return RpcResponse::err(-1, msg, id);
+                    }
                 };
-                return RpcResponse::err(ret as i32, msg, id);
+                let c_dev = std::ffi::CString::new(dev_name).unwrap();
+                let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+                let ret = api.connect_dev(c_dev.as_ptr() as *mut CHAR, &mut h_dev);
+                if ret != SAR_OK {
+                    return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                }
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(-1, "DigestInit requires the default provider".into(), id);
             }
 
-            // Store hash handle in context for subsequent DigestUpdate/DigestFinal/CloseHash
-            let id_str = id.as_ref().map_or("null".to_string(), |v| v.to_string());
-            let handle_key = format!("hash_{}", id_str);
-            {
-                let mut hash_handles = ctx.hash_handles.write().unwrap();
-                hash_handles.insert(handle_key.clone(), (SendHandle::from(h_hash), SendHandle::from(h_dev), provider.to_string(), lib_path));
-            }
+            // The provider owns the library, so the digest guard keeps its device
+            // alive without a per-call Library::new. The device is opened per
+            // digest and owned by the guard from here on.
+            let device = match ctx.provider.open_device(dev_name) {
+                Ok(device) => device,
+                Err(ProviderError::Native { code, .. }) => {
+                    return RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id);
+                }
+                Err(e) => return provider_load_failed(&e, lang, id),
+            };
 
-            RpcResponse::ok(serde_json::json!({
-                "handle": handle_key,
-            }), id)
+            match device.begin_digest(alg_id, &id_bytes) {
+                Ok(digest) => {
+                    let handle = state.handles_mut().issue_digest(digest);
+                    // Keep the device alive for the digest's lifetime: the guard
+                    // owns the device handle, so storing it in the session is what
+                    // makes DigestUpdate/DigestFinal able to use it.
+                    let device_handle = state.handles_mut().issue_device(device);
+                    let _ = device_handle;
+                    RpcResponse::ok(serde_json::json!({ "handle": handle }), id)
+                }
+                Err(ProviderError::Native { code, .. }) => {
+                    let msg = match lang {
+                        Language::CN => format!("DigestInit失败: 0x{:08X}", code),
+                        Language::EN => format!("DigestInit failed: 0x{:08X}", code),
+                    };
+                    RpcResponse::err(code as i32, msg, id)
+                }
+                Err(e) => provider_load_failed(&e, lang, id),
+            }
         },
         "DigestUpdate" => {
             // Params: [handle, dataBase64]
-            let handle_key = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(h) => h,
                 None => return RpcResponse::err(-2, "Missing handle param".into(), id),
             };
@@ -3266,93 +3268,68 @@ async fn handle_request(
                 Some(d) => d,
                 None => return RpcResponse::err(-2, "Missing dataBase64 param".into(), id),
             };
-            let mut data_bytes = match BASE64_STANDARD.decode(data_b64) {
+            let data_bytes = match BASE64_STANDARD.decode(data_b64) {
                 Ok(b) => b,
                 Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
             };
 
-            let hash_handles = ctx.hash_handles.read().unwrap();
-            let (send_h_hash, _send_h_dev, _provider, lib_path) = match hash_handles.get(handle_key) {
-                Some(h) => (h.0, h.1, h.2.clone(), h.3.clone()),
-                None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+            // The message is frozen by the recorded contract for this method.
+            let digest = match state.handles_mut().digest(handle) {
+                Ok(digest) => digest,
+                Err(_) => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
             };
-            drop(hash_handles);
 
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
-            let h_hash = HANDLE::from(send_h_hash);
-            let ret = api.digest_update(h_hash, data_bytes.as_mut_ptr(), data_bytes.len() as ULONG);
-
-            if ret != SAR_OK {
-                let msg = match lang {
-                    Language::CN => format!("DigestUpdate失败: 0x{:08X}", ret),
-                    Language::EN => format!("DigestUpdate failed: 0x{:08X}", ret),
-                };
-                return RpcResponse::err(ret as i32, msg, id);
+            match digest.update(&data_bytes) {
+                Ok(()) => RpcResponse::ok(serde_json::json!(true), id),
+                Err(ProviderError::Native { code, .. }) => {
+                    let msg = match lang {
+                        Language::CN => format!("DigestUpdate失败: 0x{:08X}", code),
+                        Language::EN => format!("DigestUpdate failed: 0x{:08X}", code),
+                    };
+                    RpcResponse::err(code as i32, msg, id)
+                }
+                Err(e) => provider_load_failed(&e, lang, id),
             }
-            RpcResponse::ok(serde_json::json!(true), id)
         },
         "DigestFinal" => {
             // Params: [handle]
-            let handle_key = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(h) => h,
                 None => return RpcResponse::err(-2, "Missing handle param".into(), id),
             };
 
-            let mut hash_handles = ctx.hash_handles.write().unwrap();
-            let (send_h_hash, send_h_dev, _provider, lib_path) = match hash_handles.remove(handle_key) {
-                Some(h) => h,
-                None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+            let digest = match state.handles_mut().remove_digest(handle) {
+                Ok(digest) => digest,
+                Err(_) => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
             };
-            drop(hash_handles);
 
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
-
-            let h_hash = HANDLE::from(send_h_hash);
-            let h_dev = HANDLE::from(send_h_dev);
-
-            let mut hash_buf = vec![0u8; 64]; // max hash size (SHA-512 = 64 bytes, SM3 = 32)
-            let mut hash_len: ULONG = hash_buf.len() as ULONG;
-            let ret = api.digest_final(h_hash, hash_buf.as_mut_ptr(), &mut hash_len);
-
-            // Always close hash handle
-            api.close_hash(h_hash);
-            api.dis_connect_dev(h_dev);
-
-            if ret != SAR_OK {
-                let msg = match lang {
-                    Language::CN => format!("DigestFinal失败: 0x{:08X}", ret),
-                    Language::EN => format!("DigestFinal failed: 0x{:08X}", ret),
-                };
-                return RpcResponse::err(ret as i32, msg, id);
+            match digest.finalize() {
+                Ok(hash) => RpcResponse::ok(serde_json::json!(BASE64_STANDARD.encode(&hash)), id),
+                Err(ProviderError::Native { code, .. }) => {
+                    let msg = match lang {
+                        Language::CN => format!("DigestFinal失败: 0x{:08X}", code),
+                        Language::EN => format!("DigestFinal failed: 0x{:08X}", code),
+                    };
+                    RpcResponse::err(code as i32, msg, id)
+                }
+                Err(e) => provider_load_failed(&e, lang, id),
             }
-
-            hash_buf.truncate(hash_len as usize);
-            let hash_b64 = BASE64_STANDARD.encode(&hash_buf);
-            RpcResponse::ok(serde_json::json!(hash_b64), id)
         },
         "CloseHash" => {
             // Params: [handle]
-            let handle_key = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(h) => h,
                 None => return RpcResponse::err(-2, "Missing handle param".into(), id),
             };
 
-            let mut hash_handles = ctx.hash_handles.write().unwrap();
-            let (send_h_hash, send_h_dev, _provider, lib_path) = match hash_handles.remove(handle_key) {
-                Some(h) => h,
-                None => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
-            };
-            drop(hash_handles);
-
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
-
-            let h_hash = HANDLE::from(send_h_hash);
-            let h_dev = HANDLE::from(send_h_dev);
-
-            api.close_hash(h_hash);
-            api.dis_connect_dev(h_dev);
-
-            RpcResponse::ok(serde_json::json!(true), id)
+            match state.handles_mut().remove_digest(handle) {
+                // Dropping the guard closes the hash.
+                Ok(digest) => {
+                    drop(digest);
+                    RpcResponse::ok(serde_json::json!(true), id)
+                }
+                Err(_) => RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+            }
         },
         _ => RpcResponse::err(-3, format!("Method {} not found", req.method), id),
     }
