@@ -58,9 +58,9 @@ impl SignData {
         let prov_name = normalize_alias(ctx, parts[0]);
         let (dev_name, app_name, cont_name) = (parts[1], parts[2], parts[3]);
 
-        let data_bytes = match base64::engine::general_purpose::STANDARD.decode(data_b64) {
+        let data_bytes = match params.decode_base64(data_b64, "Invalid base64 data") {
             Ok(b) => b,
-            Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            Err(e) => return e,
         };
 
         let provider = match ctx.resolve(prov_name) {
@@ -197,9 +197,9 @@ impl RSASignData {
         let prov_name = normalize_alias(ctx, parts[0]);
         let (dev_name, app_name, cont_name) = (parts[1], parts[2], parts[3]);
 
-        let data_bytes = match base64::engine::general_purpose::STANDARD.decode(data_b64) {
+        let data_bytes = match params.decode_base64(data_b64, "Invalid base64 data") {
             Ok(b) => b,
-            Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            Err(e) => return e,
         };
 
         let provider = match ctx.resolve(prov_name) {
@@ -303,9 +303,9 @@ impl EncryptData {
         // Distinguish an absent key from a present-but-empty one: the pre-refactor
         // code decoded `""` to a zero-byte key and rejected it as the wrong length.
         let sym_key_bytes = match params.raw(4).and_then(|v| v.as_str()) {
-            Some(encoded) => match base64::engine::general_purpose::STANDARD.decode(encoded) {
+            Some(encoded) => match params.decode_base64(encoded, "Invalid base64 symKey") {
                 Ok(b) => Some(b),
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
+                Err(e) => return e,
             },
             None => None,
         };
@@ -324,13 +324,13 @@ impl EncryptData {
         let prov_name = normalize_alias(ctx, parts[0]);
         let (dev_name, app_name, cont_name) = (parts[1], parts[2], parts[3]);
 
-        let data_bytes = match base64::engine::general_purpose::STANDARD.decode(data_b64) {
+        let data_bytes = match params.decode_base64(data_b64, "Invalid base64 data") {
             Ok(b) => b,
-            Err(e) => return RpcResponse::err(-2, format!("Invalid base64 data: {}", e), id),
+            Err(e) => return e,
         };
-        let iv_bytes = match base64::engine::general_purpose::STANDARD.decode(iv_b64) {
+        let iv_bytes = match params.decode_base64(iv_b64, "Invalid base64 IV") {
             Ok(b) => b,
-            Err(e) => return RpcResponse::err(-2, format!("Invalid base64 IV: {}", e), id),
+            Err(e) => return e,
         };
         let provider = match ctx.resolve(prov_name) {
             Ok(p) => p,
@@ -457,9 +457,9 @@ impl DecryptData {
         // Distinguish an absent key from a present-but-empty one: the pre-refactor
         // code decoded `""` to a zero-byte key and rejected it as the wrong length.
         let sym_key_bytes = match params.raw(4).and_then(|v| v.as_str()) {
-            Some(encoded) => match base64::engine::general_purpose::STANDARD.decode(encoded) {
+            Some(encoded) => match params.decode_base64(encoded, "Invalid base64 symKey") {
                 Ok(b) => Some(b),
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 symKey: {}", e), id),
+                Err(e) => return e,
             },
             None => None,
         };
@@ -478,16 +478,14 @@ impl DecryptData {
         let prov_name = normalize_alias(ctx, parts[0]);
         let (dev_name, app_name, cont_name) = (parts[1], parts[2], parts[3]);
 
-        let encrypted_bytes = match base64::engine::general_purpose::STANDARD.decode(encrypted_b64)
+        let encrypted_bytes = match params.decode_base64(encrypted_b64, "Invalid base64 encrypted data")
         {
             Ok(b) => b,
-            Err(e) => {
-                return RpcResponse::err(-2, format!("Invalid base64 encrypted data: {}", e), id)
-            }
+            Err(e) => return e,
         };
-        let iv_bytes = match base64::engine::general_purpose::STANDARD.decode(iv_b64) {
+        let iv_bytes = match params.decode_base64(iv_b64, "Invalid base64 IV") {
             Ok(b) => b,
-            Err(e) => return RpcResponse::err(-2, format!("Invalid base64 IV: {}", e), id),
+            Err(e) => return e,
         };
         let provider = match ctx.resolve(prov_name) {
             Ok(p) => p,

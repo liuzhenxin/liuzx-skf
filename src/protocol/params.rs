@@ -28,6 +28,18 @@ use serde_json::Value;
 
 use super::RpcResponse;
 
+/// Decoded-payload ceiling for one parameter.
+///
+/// The encoded form is checked before decoding, so an oversized payload is
+/// rejected before `base64` allocates the decoded buffer.
+pub const MAX_PAYLOAD_BYTES: usize = 256 * 1024;
+
+/// Largest base64 string that can decode to [`MAX_PAYLOAD_BYTES`].
+///
+/// base64 expands by 4/3 plus at most one padding group, so the +4 is the
+/// rounding headroom, not a fudge factor.
+const MAX_ENCODED_BYTES: usize = MAX_PAYLOAD_BYTES / 3 * 4 + 4;
+
 /// Positional parameter reader for one request.
 ///
 /// Holds the request id so an error response is always correlatable — the reason
@@ -119,6 +131,30 @@ impl<'a> Params<'a> {
         message: &str,
     ) -> Result<Vec<u8>, RpcResponse> {
         let encoded = self.required_str(index, message)?;
+        self.decode_base64(encoded, message)
+    }
+
+    /// Reject an encoded payload larger than [`MAX_PAYLOAD_BYTES`] before decoding.
+    ///
+    /// Public so a caller that does its own decoding (for example the
+    /// PEM-or-base64 certificate path) can apply the same guard.
+    pub fn check_payload_len(&self, encoded: &str) -> Result<(), RpcResponse> {
+        if encoded.len() > MAX_ENCODED_BYTES {
+            return Err(self.reject(&format!(
+                "Payload too large: {} bytes (limit {})",
+                encoded.len(),
+                MAX_PAYLOAD_BYTES
+            )));
+        }
+        Ok(())
+    }
+
+    /// Decode an already-extracted base64 string after the payload guard.
+    ///
+    /// On success the error shape matches the pre-refactor
+    /// `format!("{message}: {error}")`; over-limit input never reaches the decoder.
+    pub fn decode_base64(&self, encoded: &str, message: &str) -> Result<Vec<u8>, RpcResponse> {
+        self.check_payload_len(encoded)?;
         base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .map_err(|e| self.reject(&format!("{}: {}", message, e)))
@@ -222,6 +258,49 @@ mod tests {
         assert!(p.optional_base64(0).is_empty());
         assert_eq!(p.optional_base64(1), b"hi");
         assert!(p.optional_base64(9).is_empty());
+    }
+
+    #[test]
+    fn payload_at_the_exact_limit_is_accepted() {
+        // `MAX_PAYLOAD_BYTES` zero bytes encode to a string no longer than the guard.
+        let raw = vec![0u8; MAX_PAYLOAD_BYTES];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
+        let p = params(vec![json!(encoded)]);
+        let decoded = p
+            .decode_base64(p.required_str(0, "m").expect("present"), "Invalid base64 data")
+            .expect("a payload at the limit must decode");
+        assert_eq!(decoded.len(), MAX_PAYLOAD_BYTES);
+    }
+
+    #[test]
+    fn payload_over_the_limit_is_rejected_before_decode() {
+        // +4096 so the encoded form is unambiguously past the guard; base64
+        // padding makes a +1 difference invisible to a length-only check.
+        let raw = vec![0u8; MAX_PAYLOAD_BYTES + 4096];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
+        let p = params(vec![json!(encoded)]);
+        let response = p
+            .decode_base64(p.required_str(0, "m").expect("present"), "Invalid base64 data")
+            .unwrap_err();
+        assert_eq!(response.error, -2);
+        assert!(
+            response
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("Payload too large: "),
+            "over-limit message must name the limit: {:?}",
+            response.message
+        );
+        assert!(
+            !response
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("base64"),
+            "the decoder must not have run: {:?}",
+            response.message
+        );
     }
 
     #[test]

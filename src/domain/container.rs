@@ -324,6 +324,12 @@ impl ImportCertificate {
             Err(e) => return e,
         };
 
+        // Guard the encoded blob before any decode. The PEM path strips markers and
+        // decodes below this check, so checking the whole string is a safe upper
+        // bound and keeps the limit in one place.
+        if let Err(e) = params.check_payload_len(cert_str) {
+            return e;
+        }
         let cert_bytes = match decode_certificate(cert_str) {
             Ok(bytes) => bytes,
             Err(e) => return RpcResponse::err(-3, format!("Invalid cert base64: {}", e), id),
