@@ -159,10 +159,10 @@ pub fn struct_bytes<T>(value: &T) -> Vec<u8> {
 
 /// Test doubles for the domain handlers.
 ///
-/// Compiled only for unit tests; integration tests get the fake through the
-/// `test-provider` feature instead.
-#[cfg(test)]
-pub(crate) mod test_support {
+/// Available to library unit tests and, through the `test-provider` feature, to
+/// integration tests. Never compiled into a release build.
+#[cfg(any(test, feature = "test-provider"))]
+pub mod test_support {
     use std::sync::Arc;
 
     use crate::provider::SkfProvider;

@@ -47,11 +47,24 @@ fn parse_ws_port(line: &str) -> Option<u16> {
 
 /// Start the built binary on an ephemeral port and wait for it to report the port.
 pub fn start_service() -> ServiceProcess {
+    start_service_with_env(&[])
+}
+
+/// Start the service with extra environment overrides.
+///
+/// Used by tests that need to shorten a bound (for example
+/// `SKF_FFI_TIMEOUT_SECONDS`) without a rebuild.
+pub fn start_service_with_env(extra_env: &[(&str, &str)]) -> ServiceProcess {
     let exe = env!("CARGO_BIN_EXE_skf-service");
-    let mut child = Command::new(exe)
+    let mut command = Command::new(exe);
+    command
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .env("SKF_WS_ADDR", "127.0.0.1:0")
-        .env("SKF_HTTP_ADDR", "127.0.0.1:0")
+        .env("SKF_HTTP_ADDR", "127.0.0.1:0");
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
