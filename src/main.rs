@@ -196,13 +196,50 @@ impl skf_service::server::Session for JsonRpcSession {
             // Preserve the session language: rebuilding it as EN would reset
             // every SetLanguage and drift the recorded contract.
             let mut lang = std::mem::replace(&mut self.lang, Language::EN);
+
+            // The wait/cancel pair is intentionally long-lived and must not be
+            // timed out; every other request is bounded so a stalled token does
+            // not leave the caller hanging forever (TRANS-03, D-08/D-15).
+            let parsed = serde_json::from_str::<RpcRequest>(text).ok();
+            let request_id = parsed.as_ref().and_then(|r| r.id.clone());
+            let exempt = parsed
+                .as_ref()
+                .map(|r| is_wait_method(&r.method))
+                .unwrap_or(false);
             let text_owned = text.to_string();
 
-            let joined = tokio::task::spawn_blocking(move || {
+            let task = tokio::task::spawn_blocking(move || {
                 let response = handle_request(&ctx, &mut state, &text_owned, &mut lang);
                 (state, response, lang)
-            })
-            .await;
+            });
+
+            let joined = if exempt {
+                task.await
+            } else {
+                match tokio::time::timeout(ffi_timeout(), task).await {
+                    Ok(joined) => joined,
+                    Err(_elapsed) => {
+                        // Stop waiting for the caller. The blocking task keeps running
+                        // until the vendor returns; its state is released on that
+                        // thread. Give this connection a fresh empty state so it can
+                        // still answer rather than panicking.
+                        log::warn!(
+                            "request timed out after {:?}; returning to caller",
+                            ffi_timeout()
+                        );
+                        self.guard.put_state(SessionState::new(ttl));
+                        self.lang = Language::EN;
+                        let response = RpcResponse::err(
+                            -1,
+                            "Device operation timed out after 30s".into(),
+                            request_id,
+                        );
+                        return serde_json::to_string(&response).unwrap_or_else(|e| {
+                            format!("{{\"error\":-1,\"message\":\"serialize failed: {}\"}}", e)
+                        });
+                    }
+                }
+            };
 
             match joined {
                 Ok((state, response, lang)) => {
@@ -275,6 +312,31 @@ async fn run_server(shutdown: Option<tokio::sync::watch::Receiver<bool>>) -> any
         None,
     )
     .await
+}
+
+/// Default timeout for a non-wait request.
+///
+/// The vendor call cannot be killed, so the timeout stops the *caller* waiting;
+/// the blocking thread keeps running until the library returns. `WaitForDevEvent`
+/// and `CancelWaitForDevEvent` are exempt because they are intentionally
+/// long-lived.
+const FFI_TIMEOUT_SECONDS: u64 = 30;
+
+/// The request timeout, overridable for tests and operations.
+///
+/// `SKF_FFI_TIMEOUT_SECONDS` exists so an operator (or a test) can shorten the
+/// bound without a rebuild; an invalid value falls back to the default.
+fn ffi_timeout() -> std::time::Duration {
+    std::env::var("SKF_FFI_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(std::time::Duration::from_secs(FFI_TIMEOUT_SECONDS))
+}
+
+/// Whether a method is exempt from the request timeout.
+fn is_wait_method(method: &str) -> bool {
+    matches!(method, "WaitForDevEvent" | "CancelWaitForDevEvent")
 }
 
 /// Convert a hex string to bytes
