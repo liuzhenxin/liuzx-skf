@@ -1,0 +1,37 @@
+{
+  "method": "GenerateRandom",
+  "setup": [],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "GenerateRandom",
+    "params": [],
+    "id": 1
+  },
+  "response": {
+    "error": -2,
+    "message": "Bad params",
+    "id": 1
+  },
+  "normalize": {
+    "result": "<volatile:random>"
+  },
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:28:34.717Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": true,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {
+      "result": "device CSPRNG output is random by definition"
+    },
+    "recording_note": "client rejected: Bad params"
+  }
+}

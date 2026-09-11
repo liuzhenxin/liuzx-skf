@@ -1,0 +1,48 @@
+{
+  "method": "FindCertificates",
+  "setup": [],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "FindCertificates",
+    "params": [
+      ""
+    ],
+    "id": 1
+  },
+  "response": {
+    "error": 0,
+    "result": [
+      {
+        "cert": "MIICiDCCAi6gAwIBAgIGAaB/T7JJMAoGCCqBHM9VAYN1MDMxCzAJBgNVBAYTAkNOMRAwDgYDVQQKDAdNYW5hZ2VyMRIwEAYDVQQDDAlNYW5hZ2VyQ0EwHhcNMjYwOTA4MDQzODQ0WhcNMzEwOTA4MDQzODQ0WjAvMQswCQYDVQQGEwJDTjEQMA4GA1UECgwHTWFuYWdlcjEOMAwGA1UEAwwFYWRtaW4wWTATBgcqhkjOPQIBBggqgRzPVQGCLQNCAARmQwHGOcSHLK4xWvaCKiuYSmsAgtNDAPtZa/ar3UCd5/eCT10gzqUc6UUQxMaLakqhuMUv37G8zu8K3c5nXHezo4IBMDCCASwwHQYDVR0OBBYEFGhSLg43t+A/sEKuvEyq5DF3eN/eMB8GA1UdIwQYMBaAFM+7g1wUMX+viD0n9+b5QfX512paMAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMCMG0GCCsGAQUFBwEBBGEwXzApBggrBgEFBQcwAoYdaHR0cHM6Ly9teW9yZy5vcmcvcm9vdGNhMS5kZXIwMgYIKwYBBQUHMAGGJmh0dHBzOi8vbG9jYWxob3N0OjgwODAvb2NzcC9yZXNwb25kZXIxMEgGA1UdHwRBMD8wPaA7oDmGN2h0dHBzOi8vbG9jYWxob3N0OjgwODEvZHVtbXkvY3JsLz90eXBlPWNybCZuYW1lPXJvb3RjYTEwCgYIKoEcz1UBg3UDSAAwRQIhAPPwM37KM+MASMnnRwzUsTtibzA0VxPddr3OE+NQAiu+AiBNvMqMyL5gv1zFZnd9/e33TVrvtFNAatKvO46m/yLOtQ==",
+        "key": "GM3000/BE40503E6E5D8F491AF943EDE321192/GM3000RSA/admin-524d49c5/1788842324553",
+        "type": "Sign",
+        "value": "C=CN, O=Manager, CN=admin"
+      },
+      {
+        "cert": "MIICijCCAjCgAwIBAgIGAaB/T/4HMAoGCCqBHM9VAYN1MDMxCzAJBgNVBAYTAkNOMRAwDgYDVQQKDAdNYW5hZ2VyMRIwEAYDVQQDDAlNYW5hZ2VyQ0EwHhcNMjYwOTA4MDQzOTAzWhcNMzEwOTA4MDQzOTAzWjAxMQswCQYDVQQGEwJDTjEQMA4GA1UECgwHTWFuYWdlcjEQMA4GA1UEAwwHYXVkaXRvcjBZMBMGByqGSM49AgEGCCqBHM9VAYItA0IABMZJPb/AeOt0RW3PsYxvgkND5R11xK8bIxDHooqqqf2+qBxBFZdA4+vTpYUKmD3LEHUge4nuYpM2l3OEu7q9fN2jggEwMIIBLDAdBgNVHQ4EFgQUjY087J6dRP8ylCnG6RjHS0Vq034wHwYDVR0jBBgwFoAUz7uDXBQxf6+IPSf35vlB9fnXalowDAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwIwbQYIKwYBBQUHAQEEYTBfMCkGCCsGAQUFBzAChh1odHRwczovL215b3JnLm9yZy9yb290Y2ExLmRlcjAyBggrBgEFBQcwAYYmaHR0cHM6Ly9sb2NhbGhvc3Q6ODA4MC9vY3NwL3Jlc3BvbmRlcjEwSAYDVR0fBEEwPzA9oDugOYY3aHR0cHM6Ly9sb2NhbGhvc3Q6ODA4MS9kdW1teS9jcmwvP3R5cGU9Y3JsJm5hbWU9cm9vdGNhMTAKBggqgRzPVQGDdQNIADBFAiAqzMsBRLo6nuzffhuUOCdBAR0nmll7R2zrc5nWXc8GTgIhAP1IpQBlGWOWPn7kdCdnyrmWoDs3SSTHChCoNBZ1S31O",
+        "key": "GM3000/BE40503E6E5D8F491AF943EDE321192/GM3000RSA/auditor-d9027172/1788842343943",
+        "type": "Sign",
+        "value": "C=CN, O=Manager, CN=auditor"
+      }
+    ],
+    "id": 1
+  },
+  "normalize": {},
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:28:34.717Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": true,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {},
+    "recording_note": null
+  }
+}
