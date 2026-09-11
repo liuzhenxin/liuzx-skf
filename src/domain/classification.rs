@@ -17,11 +17,13 @@
 //! # Classifying a new method
 //!
 //! Ask whether the operation can change persisted token/device state, consume a
-//! PIN retry, create or import key material, open/close a native resource, or
-//! change a lock. If any is true it is [`OperationClass::Destructive`]; a pure
-//! query or stateless computation is [`OperationClass::ReadOnly`].
-//! `tests/classification_invariants.rs` fails if a method is added without a
-//! class.
+//! PIN retry, create or import key material, open/close a device, application, or
+//! container resource, or change a lock. If any is true it is
+//! [`OperationClass::Destructive`]; a pure query or stateless computation is
+//! [`OperationClass::ReadOnly`]. Streaming digest handles are session-scoped
+//! in-memory state released with the session, so the digest lifecycle is
+//! ReadOnly. `tests/classification_invariants.rs` fails if a method is added
+//! without a class.
 
 /// How an operation affects the device and its stored state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
