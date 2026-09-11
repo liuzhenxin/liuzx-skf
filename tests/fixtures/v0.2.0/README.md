@@ -121,6 +121,39 @@ no response was produced.
 Because of that timing dependence, the end-to-end replay treats
 `WaitForDevEvent` as a shape check rather than a strict value comparison.
 
+## Environment-volatile responses
+
+Some responses are dominated by state that lives **outside the service**: the
+middleware's device list, and the certificates stored on the token. Asserting those
+values tests the machine, not the code, and produces false alarms.
+
+They are declared volatile — compared as a marker, with the response shape and error
+code still asserted:
+
+| Method | Path | Why the value is not a code property |
+|--------|------|--------------------------------------|
+| `EnumDevice` | `result` | The reported device name changed from `BE40503E...` to `C03FA56F...` between recording and later runs **with identical pre-Phase-2 code** |
+| `FindCertificates` | `result` | The certificates on the token changed independently of the service |
+
+This is a deliberate reduction in oracle strength for these two fields. It was
+recorded rather than applied silently: the markers live in `normalize`, the reasons
+in `provenance.volatile_reasons`, and the recorder carries the same declaration so a
+future recording cannot quietly lose it.
+
+**What is still asserted:** the error code, the presence of a result, and every other
+field. For `EnumDevice` that means "returns a device list successfully"; what the
+list contains is the middleware's business.
+
+### A transient that is easy to mistake for a regression
+
+Starting a service immediately after killing another one can make the middleware
+report **no devices at all** for a short window; during one such window 24 methods
+appeared to drift at once, all with the same root cause. The device was present
+throughout — `system_profiler` listed the token — and running the *pre-Phase-2*
+binary during the same window reproduced the same result, which is how the
+misattribution was caught. If a large group of device-dependent methods drifts
+together, check the device state before touching any code.
+
 ## Intentional contract changes
 
 A recorded response is the *old* behaviour. When a change is deliberate, the fixture

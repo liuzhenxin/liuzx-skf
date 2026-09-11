@@ -27,7 +27,9 @@
     ],
     "id": 1
   },
-  "normalize": {},
+  "normalize": {
+    "result": "<volatile:certificate_list>"
+  },
   "provenance": {
     "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
     "recorded_at": "2026-09-11T05:35:33.431Z",
@@ -42,7 +44,9 @@
       "pin"
     ],
     "volatile_fields_reviewed": true,
-    "volatile_reasons": {},
-    "recording_note": null
+    "volatile_reasons": {
+      "result": "The certificate list is token state. The token now holds different certificates than at recording time, which changed the response with no code change involved. The response shape and the error code are still compared."
+    },
+    "recording_note": "DECLARED VOLATILE in Phase 2 wave 4: this response is dominated by middleware/token state, and the value changed with no code change. Compared as a marker so the suite reports code regressions only."
   }
 }

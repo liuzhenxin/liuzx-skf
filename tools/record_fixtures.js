@@ -75,6 +75,11 @@ const VOLATILE_PATHS = {
     // Provider list order is process-dependent: the handler iterates a HashMap.
     // '<unordered>' sorts the array so contents stay asserted.
     EnumProvider: { result: '<unordered>' },
+    // Middleware state, not code behaviour: the reported device name changed
+    // between recording and later runs with identical code.
+    EnumDevice: { result: '<volatile:device_list>' },
+    // Token state: the certificates on the device changed independently of the code.
+    FindCertificates: { result: '<volatile:certificate_list>' },
 };
 
 /** Source-level justification for each declaration above. */
@@ -90,6 +95,12 @@ const VOLATILE_REASONS = {
     },
     EnumProvider: {
         'result': 'src/main.rs EnumProvider returns ctx.config.libs.keys(), a HashMap, so the provider list has the same contents in a process-dependent order; compared as a set',
+    },
+    EnumDevice: {
+        'result': 'middleware state: the reported device name changed between recording and later runs with identical pre-Phase-2 code',
+    },
+    FindCertificates: {
+        'result': 'token state: the certificates stored on the device changed independently of the code',
     },
 };
 
