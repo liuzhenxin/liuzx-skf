@@ -27,14 +27,23 @@ value genuinely cannot be compared.
 
 Current declarations and their source-level justification:
 
-| Method | Path | Reason |
-|--------|------|--------|
-| `ConnectDev` | `result` | returns `format!("[]", h_dev as usize)` — a process-local pointer value |
-| `GenerateRandom` | `result` | device CSPRNG output is random by definition |
-| `IssueCertificate` | `result` | shells out to OpenSSL and generates fresh key material and serials |
+| Method | Path | Marker | Reason |
+|--------|------|--------|--------|
+| `ConnectDev` | `result` | `<volatile:handle>` | returns `format!("{}", h_dev as usize)` — a process-local pointer value |
+| `GenerateRandom` | `result` | `<volatile:random>` | device CSPRNG output is random by definition |
+| `IssueCertificate` | `result` | `<volatile:certificate>` | shells out to OpenSSL and generates fresh key material and serials |
+| `EnumProvider` | `result` | `<unordered>` | iterates a `HashMap`; same contents, process-dependent order |
 
 Both sides of every comparison are normalized, so a volatile field may hold any
 value in the fixture and in the live response.
+
+### The `<unordered>` marker
+
+`<unordered>` is not a value substitution — it sorts the array at that path by
+its canonical JSON form. Contents and length are still asserted; only ordering is
+ignored. It exists because `EnumProvider` returns `ctx.config.libs.keys()` from a
+`HashMap`, so the provider list arrives in a different order on every process
+start.
 
 ### Declared paths that are absent from the recorded response
 
@@ -88,6 +97,29 @@ path — that error contract is real behaviour and is compared like any other
 A later run on a machine with a GM3000 token can enrich these fixtures: re-run the
 recorder, review the diff, and flip `observed_with_device` to `true`. That is a
 contract change and must be committed as such.
+
+## How to verify determinism correctly
+
+Comparing two recordings taken inside the **same** server process is not enough:
+`HashMap` iteration order is stable within a process, so the `EnumProvider`
+ordering instability only appears after a restart. A determinism check must stop
+the service, start it again, record, and compare.
+
+This matters because the first determinism check for this fixture set ran inside
+one process and reported "0 undeclared volatility" while `EnumProvider` was in
+fact unstable across processes. The declaration was added only after a
+process-restart comparison caught it.
+
+## Timing-sensitive case: `WaitForDevEvent`
+
+`WaitForDevEvent` blocks the connection that issues it, so cancellation has to
+arrive on a second connection. If the cancel arrives before the waiter has
+actually entered the blocking vendor call, the cancel is lost and the wait never
+returns. The recorder therefore waits ~800 ms before cancelling and retries when
+no response was produced.
+
+Because of that timing dependence, the end-to-end replay treats
+`WaitForDevEvent` as a shape check rather than a strict value comparison.
 
 ## Known environment limitations observed while recording
 

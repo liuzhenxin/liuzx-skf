@@ -24,11 +24,19 @@ fn is_marker(value: &Value) -> bool {
     }
 }
 
+/// Marker meaning "compare this array without regard to element order".
+///
+/// Needed because `EnumProvider` iterates a `HashMap`, so the provider list is
+/// the same set in a different order on every process start. Sorting keeps the
+/// contents asserted while ignoring the unstable ordering.
+pub const UNORDERED_MARKER: &str = "<unordered>";
+
 /// Replace every path declared in `spec` with its marker string.
 ///
 /// `spec` mirrors the response shape; leaf values shaped like `<marker>` are
-/// substituted into the actual value at the same path. Paths absent from `spec`
-/// are left untouched, which is what makes an undeclared change detectable.
+/// substituted into the actual value at the same path, and the special marker
+/// `<unordered>` sorts the array at that path. Paths absent from `spec` are left
+/// untouched, which is what makes an undeclared change detectable.
 pub fn apply_normalize(actual: Value, spec: &Value) -> Value {
     match (actual, spec) {
         (Value::Object(actual_map), Value::Object(spec_map)) => {
@@ -54,6 +62,14 @@ pub fn apply_normalize(actual: Value, spec: &Value) -> Value {
                 .collect();
             Value::Array(normalized)
         }
+        (actual, spec) if spec.as_str() == Some(UNORDERED_MARKER) => match actual {
+            Value::Array(items) => {
+                let mut sorted: Vec<Value> = items.into_iter().collect();
+                sorted.sort_by_key(|item| item.to_string());
+                Value::Array(sorted)
+            }
+            other => other,
+        },
         (actual, spec) if is_marker(spec) => spec.clone(),
         (actual, _) => actual,
     }
@@ -228,6 +244,37 @@ mod tests {
         assert!(
             !compare(mutated, &response, &normalize),
             "a mutated 'error' field must survive normalization and be detected"
+        );
+    }
+
+    /// `<unordered>` must make array order irrelevant WITHOUT hiding content.
+    #[test]
+    fn oracle_ignores_declared_array_order_but_still_checks_contents() {
+        let expected = json!({ "error": 0, "result": ["a", "b", "c"], "id": 1 });
+        let normalize = json!({ "result": UNORDERED_MARKER });
+
+        // Same elements, different order: must be accepted.
+        let reordered = json!({ "error": 0, "result": ["c", "a", "b"], "id": 1 });
+        assert_eq!(
+            apply_normalize(reordered, &normalize),
+            apply_normalize(expected.clone(), &normalize),
+            "declared unordered path must ignore element order"
+        );
+
+        // Different contents: must still be rejected.
+        let changed = json!({ "error": 0, "result": ["c", "a", "zzz"], "id": 1 });
+        assert_ne!(
+            apply_normalize(changed, &normalize),
+            apply_normalize(expected.clone(), &normalize),
+            "unordered comparison must not hide a changed element"
+        );
+
+        // Different length: must still be rejected.
+        let shorter = json!({ "error": 0, "result": ["a", "b"], "id": 1 });
+        assert_ne!(
+            apply_normalize(shorter, &normalize),
+            apply_normalize(expected, &normalize),
+            "unordered comparison must not hide a removed element"
         );
     }
 

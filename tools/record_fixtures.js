@@ -72,6 +72,9 @@ const VOLATILE_PATHS = {
     ConnectDev: { result: '<volatile:handle>' },
     GenerateRandom: { result: '<volatile:random>' },
     IssueCertificate: { result: '<volatile:certificate>' },
+    // Provider list order is process-dependent: the handler iterates a HashMap.
+    // '<unordered>' sorts the array so contents stay asserted.
+    EnumProvider: { result: '<unordered>' },
 };
 
 /** Source-level justification for each declaration above. */
@@ -84,6 +87,9 @@ const VOLATILE_REASONS = {
     },
     IssueCertificate: {
         'result': 'src/main.rs IssueCertificate shells out to OpenSSL and generates fresh RSA/SM2 material and certificate serials',
+    },
+    EnumProvider: {
+        'result': 'src/main.rs EnumProvider returns ctx.config.libs.keys(), a HashMap, so the provider list has the same contents in a process-dependent order; compared as a set',
     },
 };
 
@@ -285,36 +291,59 @@ async function scenarioDigestChain(wsUrl, which, provider, device) {
 /**
  * WaitForDevEvent blocks the connection that issues it, so cancellation must
  * come from a second connection. Without this, the recorder would hang.
+ *
+ * The cancel is timing-sensitive: if it arrives before the waiter has actually
+ * entered the blocking vendor call, the cancel is lost and the wait never
+ * returns. The scenario therefore waits before cancelling and retries when no
+ * response was produced, so a stable contract is recorded rather than a coin
+ * flip.
  */
 async function scenarioWaitForDevEvent(wsUrl, provider) {
-    const a = await connect(wsUrl);
-    let b = null;
-    try {
-        const id = a.client.msgId;
-        // Fire without awaiting: the server's per-connection loop is busy until cancel.
-        const pending = attempt(() => a.client.waitForDevEvent(provider));
-        await settle();
+    const MAX_ATTEMPTS = 3;
+    let last = null;
 
-        b = await connect(wsUrl);
-        const cancel = await recordCall(b.client, b.tap, () => b.client.cancelWaitForDevEvent());
-        await settle();
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const a = await connect(wsUrl);
+        let b = null;
+        try {
+            const id = a.client.msgId;
+            // Fire without awaiting: the server's per-connection loop is busy until cancel.
+            const pending = attempt2Promise(() => a.client.waitForDevEvent(provider));
+            // Give the waiter time to reach the blocking vendor call before cancelling.
+            await new Promise((r) => setTimeout(r, 800));
 
-        const settled = await Promise.race([
-            pending,
-            new Promise((r) => setTimeout(() => r({ ok: false, error: 'timeout after cancel' }), 8000)),
-        ]);
-        await settle();
+            b = await connect(wsUrl);
+            const cancel = await recordCall(b.client, b.tap, () => b.client.cancelWaitForDevEvent());
 
-        return {
-            setup: [],
-            request: a.tap.requests.get(id) || null,
-            response: a.tap.responses.get(id) || null,
-            note: `cancel response: ${cancel.response ? JSON.stringify(cancel.response) : 'none'}; wait outcome: ${settled && settled.ok ? 'resolved' : describe(settled && settled.error)}`,
-        };
-    } finally {
-        a.client.disconnect();
-        if (b) b.client.disconnect();
+            const settled = await Promise.race([
+                pending,
+                new Promise((r) => setTimeout(() => r({ ok: false, error: 'timeout after cancel' }), 8000)),
+            ]);
+            await settle();
+
+            last = {
+                setup: [],
+                request: a.tap.requests.get(id) || null,
+                response: a.tap.responses.get(id) || null,
+                note: `attempt ${attempt}/${MAX_ATTEMPTS}; cancel response: ${cancel.response ? JSON.stringify(cancel.response) : 'none'}; wait outcome: ${settled && settled.ok ? 'resolved' : describe(settled && settled.error)}`,
+            };
+
+            if (last.response) {
+                last.note += ' | timing-sensitive pair: cancel must arrive after the wait has entered the blocking call';
+                return last;
+            }
+        } finally {
+            a.client.disconnect();
+            if (b) b.client.disconnect();
+        }
     }
+
+    return last;
+}
+
+/** Local alias kept explicit so the retry loop reads clearly. */
+function attempt2Promise(fn) {
+    return attempt(fn);
 }
 
 // ---------------------------------------------------------------------------

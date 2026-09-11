@@ -1,5 +1,3 @@
-mod skf;
-
 // Windows Service (SCM) support: `install` / `uninstall` / `start` / `stop` /
 // `status` subcommands plus the `--service` entry point used by the SCM.
 #[cfg(windows)]
@@ -12,18 +10,13 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use futures_util::{StreamExt, SinkExt};
-use crate::skf::api::SkfApi;
-use crate::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM, DEVINFO, SendHandle};
+use skf_service::skf::api::SkfApi;
+use skf_service::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM2_1, SGD_SM4_ECB, SGD_SM4_CBC, BLOCKCIPHERPARAM, DEVINFO, SendHandle};
+use skf_service::crypto::*;
 use base64::prelude::*;
 use x509_parser::prelude::*;
 
-#[derive(Debug, Deserialize, Clone)]
-struct SkfConfig {
-    default: String,
-    vendor: HashMap<String, String>,
-    #[serde(flatten)]
-    libs: HashMap<String, HashMap<String, String>>,
-}
+use skf_service::config::SkfConfig;
 
 struct SkfContext {
     config: SkfConfig,
@@ -46,19 +39,7 @@ impl SkfContext {
     }
 
     fn get_lib_path(&self, provider: &str) -> anyhow::Result<String> {
-        let os = std::env::consts::OS;
-        let raw_path = self.config.libs
-            .get(provider)
-            .and_then(|m| {
-                m.get(os)
-                 .or_else(|| m.iter().find(|(k, _)| k.eq_ignore_ascii_case(os)).map(|(_, v)| v))
-            })
-            .ok_or_else(|| {
-                 let available_providers: Vec<_> = self.config.libs.keys().collect();
-                 anyhow::anyhow!("Provider '{}' not configured for OS '{}'. Avail Provs: {:?}", provider, os, available_providers)
-            })?;
-
-        Ok(Self::expand_env_vars(raw_path))
+        skf_service::config::resolve_lib_path(&self.config.libs, provider, std::env::consts::OS)
     }
 
     fn get_api(&self, provider: &str) -> anyhow::Result<Arc<SkfApi>> {
@@ -88,7 +69,7 @@ impl SkfContext {
                  anyhow::anyhow!("Provider '{}' not configured for OS '{}'. Avail Provs: {:?}. Avail OS for {}: {}", provider, os, available_providers, provider, available_os)
             })?;
 
-        let lib_path = Self::expand_env_vars(raw_path);
+        let lib_path = skf_service::config::expand_env_vars(raw_path);
         println!("Loading SKF library for {} from: {}", provider, lib_path);
         
         // Safety: Loading foreign libraries is inherently unsafe.
@@ -111,44 +92,6 @@ impl SkfContext {
         Ok(api)
     }
 
-    fn expand_env_vars(path: &str) -> String {
-        let mut result = String::new();
-        let mut chars = path.chars().peekable();
-
-        while let Some(c) = chars.next() {
-            if c == '%' {
-                let mut var_name = String::new();
-                let mut closed = false;
-                while let Some(&n) = chars.peek() {
-                    if n == '%' {
-                        chars.next();
-                        closed = true;
-                        break;
-                    }
-                    var_name.push(chars.next().unwrap());
-                }
-                
-                if closed && !var_name.is_empty() {
-                    match std::env::var(&var_name) {
-                        Ok(val) => result.push_str(&val),
-                        Err(_) => {
-                            // If var not found, keep original string
-                            result.push('%');
-                            result.push_str(&var_name);
-                            result.push('%');
-                        }
-                    }
-                } else {
-                    // Not a valid var format, push literal % and what we ate
-                    result.push('%');
-                    result.push_str(&var_name);
-                }
-            } else {
-                result.push(c);
-            }
-        }
-        result
-    }
 }
 
 // JSON-RPC Request/Response
@@ -350,192 +293,11 @@ fn spawn_ws_client(ctx: Arc<SkfContext>, stream: tokio::net::TcpStream) {
 }
 
 /// Convert a hex string to bytes
-fn hex_to_bytes(hex: &str) -> Vec<u8> {
-    let hex = hex.trim();
-    (0..hex.len())
-        .step_by(2)
-        .filter_map(|i| {
-            if i + 2 <= hex.len() {
-                u8::from_str_radix(&hex[i..i+2], 16).ok()
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// Encode a big-endian unsigned integer as DER INTEGER (tag 0x02).
-/// Strips leading zeros and adds 0x00 pad if high bit is set.
-fn der_encode_integer(bytes: &[u8]) -> Vec<u8> {
-    // Strip leading zeros
-    let start = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len() - 1);
-    let trimmed = &bytes[start..];
-
-    // If high bit set, prepend 0x00 (DER positive integer rule)
-    let needs_pad = !trimmed.is_empty() && (trimmed[0] & 0x80) != 0;
-    let int_len = trimmed.len() + if needs_pad { 1 } else { 0 };
-
-    let encoded_len = der_encode_length(int_len);
-    let mut out = Vec::with_capacity(1 + encoded_len.len() + int_len);
-    out.push(0x02); // INTEGER tag
-    out.extend_from_slice(&encoded_len);
-    if needs_pad {
-        out.push(0x00);
-    }
-    out.extend_from_slice(trimmed);
-    out
-}
-
-/// DER encode length (supports lengths up to 65535)
-fn der_encode_length(len: usize) -> Vec<u8> {
-    if len < 128 {
-        vec![len as u8]
-    } else if len < 256 {
-        vec![0x81, len as u8]
-    } else {
-        vec![0x82, (len >> 8) as u8, len as u8]
-    }
-}
-
 fn temp_file_path(file_name: &str) -> String {
     std::env::temp_dir()
         .join(file_name)
         .to_string_lossy()
         .into_owned()
-}
-
-/// Wrap content with a DER tag + length
-fn der_wrap(tag: u8, content: &[u8]) -> Vec<u8> {
-    let mut out = vec![tag];
-    out.extend(der_encode_length(content.len()));
-    out.extend_from_slice(content);
-    out
-}
-
-/// DER SEQUENCE (tag 0x30)
-fn der_sequence(items: &[&[u8]]) -> Vec<u8> {
-    let mut content = Vec::new();
-    for item in items { content.extend_from_slice(item); }
-    der_wrap(0x30, &content)
-}
-
-/// DER SET (tag 0x31)
-fn der_set(items: &[&[u8]]) -> Vec<u8> {
-    let mut content = Vec::new();
-    for item in items { content.extend_from_slice(item); }
-    der_wrap(0x31, &content)
-}
-
-/// DER OID from pre-encoded bytes
-fn der_oid(oid_bytes: &[u8]) -> Vec<u8> {
-    der_wrap(0x06, oid_bytes)
-}
-
-/// DER UTF8String (tag 0x0C)
-fn der_utf8_string(s: &str) -> Vec<u8> {
-    der_wrap(0x0C, s.as_bytes())
-}
-
-/// DER PrintableString (tag 0x13)
-fn der_printable_string(s: &str) -> Vec<u8> {
-    der_wrap(0x13, s.as_bytes())
-}
-
-/// DER BIT STRING (tag 0x03) — wraps content with a 0x00 unused-bits prefix
-fn der_bit_string(content: &[u8]) -> Vec<u8> {
-    let mut inner = vec![0x00]; // 0 unused bits
-    inner.extend_from_slice(content);
-    der_wrap(0x03, &inner)
-}
-
-/// DER INTEGER with small value
-fn der_small_integer(val: u8) -> Vec<u8> {
-    vec![0x02, 0x01, val]
-}
-
-/// DER CONTEXT tag [0] (constructed, implicit)
-fn der_context_0(content: &[u8]) -> Vec<u8> {
-    der_wrap(0xA0, content)
-}
-
-// Well-known OIDs
-const OID_CN: &[u8]  = &[0x55, 0x04, 0x03]; // 2.5.4.3
-const OID_O: &[u8]   = &[0x55, 0x04, 0x0A]; // 2.5.4.10
-const OID_OU: &[u8]  = &[0x55, 0x04, 0x0B]; // 2.5.4.11
-const OID_C: &[u8]   = &[0x55, 0x04, 0x06]; // 2.5.4.6
-const OID_ST: &[u8]  = &[0x55, 0x04, 0x08]; // 2.5.4.8
-const OID_L: &[u8]   = &[0x55, 0x04, 0x07]; // 2.5.4.7
-const OID_E: &[u8]   = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01]; // 1.2.840.113549.1.9.1
-
-// SM2 OID: 1.2.156.10197.1.301
-const OID_SM2: &[u8] = &[0x2A, 0x81, 0x1C, 0xCF, 0x55, 0x01, 0x82, 0x2D];
-// SM3withSM2 OID: 1.2.156.10197.1.501
-const OID_SM3_WITH_SM2: &[u8] = &[0x2A, 0x81, 0x1C, 0xCF, 0x55, 0x01, 0x83, 0x75];
-// EC public key OID: 1.2.840.10045.2.1
-const OID_EC_PUBLIC_KEY: &[u8] = &[0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01];
-// RSA encryption OID: 1.2.840.113549.1.1.1
-const OID_RSA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
-// SHA256withRSA OID: 1.2.840.113549.1.1.11
-const OID_SHA256_WITH_RSA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B];
-
-/// Parse "CN=Test,O=MyOrg,C=CN" into DER-encoded Name (SEQUENCE of SET of SEQUENCE {OID, value})
-fn build_subject_dn(subject: &str) -> Vec<u8> {
-    let mut rdns: Vec<Vec<u8>> = Vec::new();
-    for part in subject.split(',') {
-        let part = part.trim();
-        if let Some((key, val)) = part.split_once('=') {
-            let key = key.trim().to_uppercase();
-            let oid = match key.as_str() {
-                "CN" => OID_CN,
-                "O"  => OID_O,
-                "OU" => OID_OU,
-                "C"  => OID_C,
-                "ST" => OID_ST,
-                "L"  => OID_L,
-                "E" | "EMAIL" | "EMAILADDRESS" => OID_E,
-                _ => continue,
-            };
-            let val = val.trim();
-            // C (country) uses PrintableString, others UTF8String
-            let value_der = if key == "C" {
-                der_printable_string(val)
-            } else {
-                der_utf8_string(val)
-            };
-            let attr_type_val = der_sequence(&[&der_oid(oid), &value_der]);
-            let rdn = der_set(&[&attr_type_val]);
-            rdns.push(rdn);
-        }
-    }
-    let refs: Vec<&[u8]> = rdns.iter().map(|r| r.as_slice()).collect();
-    der_sequence(&refs)
-}
-
-/// Build SubjectPublicKeyInfo for SM2 key
-fn build_sm2_spki(pub_key: &ECCPUBLICKEYBLOB) -> Vec<u8> {
-    // Algorithm: SEQUENCE { OID ecPublicKey, OID SM2 }
-    let alg = der_sequence(&[&der_oid(OID_EC_PUBLIC_KEY), &der_oid(OID_SM2)]);
-    // Public key: 0x04 || X(32) || Y(32)  (uncompressed point)
-    // SKF stores 32-byte SM2 values right-aligned in 64-byte arrays
-    let mut point = Vec::with_capacity(1 + 32 * 2);
-    point.push(0x04); // uncompressed
-    point.extend_from_slice(&pub_key.XCoordinate[32..64]);
-    point.extend_from_slice(&pub_key.YCoordinate[32..64]);
-    let pub_key_bits = der_bit_string(&point);
-    der_sequence(&[&alg, &pub_key_bits])
-}
-
-/// Build SubjectPublicKeyInfo for RSA key
-fn build_rsa_spki(pub_key: &RSAPUBLICKEYBLOB) -> Vec<u8> {
-    // Algorithm: SEQUENCE { OID rsaEncryption, NULL }
-    let alg = der_sequence(&[&der_oid(OID_RSA), &[0x05, 0x00]]);
-    // RSA public key: SEQUENCE { INTEGER modulus, INTEGER exponent }
-    let key_len = (pub_key.BitLen / 8) as usize;
-    let n = der_encode_integer(&pub_key.Modulus[..key_len]);
-    let e = der_encode_integer(&pub_key.PublicExponent);
-    let rsa_key = der_sequence(&[&n, &e]);
-    let pub_key_bits = der_bit_string(&rsa_key);
-    der_sequence(&[&alg, &pub_key_bits])
 }
 
 async fn handle_request(ctx: &SkfContext, text: &str, lang: &mut Language) -> RpcResponse {

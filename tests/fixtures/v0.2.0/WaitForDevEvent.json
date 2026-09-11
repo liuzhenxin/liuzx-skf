@@ -17,7 +17,7 @@
   "normalize": {},
   "provenance": {
     "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
-    "recorded_at": "2026-09-11T05:28:34.717Z",
+    "recorded_at": "2026-09-11T05:35:33.431Z",
     "platform": "darwin-x64",
     "provider_alias": "GM3000",
     "requires_hardware": true,
@@ -30,6 +30,6 @@
     ],
     "volatile_fields_reviewed": true,
     "volatile_reasons": {},
-    "recording_note": "cancel response: {\"error\":0,\"result\":true,\"id\":1}; wait outcome: WaitForDevEvent failed: 0xA000022"
+    "recording_note": "attempt 1/3; cancel response: {\"error\":0,\"result\":true,\"id\":1}; wait outcome: WaitForDevEvent failed: 0xA000022 | timing-sensitive pair: cancel must arrive after the wait has entered the blocking call"
   }
 }
