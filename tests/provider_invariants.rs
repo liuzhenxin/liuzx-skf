@@ -218,3 +218,31 @@ fn source_tree_has_no_leftover_raw_handle_fields_in_guards() {
         );
     }
 }
+
+/// `WaitForDevEvent` and `CancelWaitForDevEvent` must bypass the FFI gate.
+///
+/// They are the one process-global pair that is designed to run concurrently:
+/// cancel has to reach the library while a wait is parked. If either took the
+/// per-provider lock, cancel would queue behind wait and the pair would
+/// deadlock (TRANS-05, decision D-02).
+#[test]
+fn wait_and_cancel_do_not_take_the_ffi_gate() {
+    let native = read(&manifest_dir().join("src/provider/native.rs"));
+    for method in ["fn wait_for_event(", "fn cancel_wait_for_event("] {
+        let start = native
+            .find(method)
+            .unwrap_or_else(|| panic!("{} not found", method));
+        let rest = &native[start..];
+        // Slice up to the next method definition.
+        let end = rest[1..]
+            .find("\n    fn ")
+            .map(|i| i + 1)
+            .unwrap_or(rest.len());
+        let block = &rest[..end];
+        assert!(
+            !block.contains("gate_lock"),
+            "{} must not take the FFI gate; cancel would deadlock behind wait",
+            method
+        );
+    }
+}

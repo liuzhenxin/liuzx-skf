@@ -92,6 +92,31 @@ where
 }
 
 // ---------------------------------------------------------------------------
+// Serialisation gate
+// ---------------------------------------------------------------------------
+
+/// Serialises every call into one vendor library.
+///
+/// The vendor DLL has no documented thread-safety guarantee, so each provider
+/// owns one gate and every guard created from it shares that gate. Taking it in
+/// each native method is what makes per-provider serialization (TRANS-05)
+/// hold even though many sessions may call concurrently.
+///
+/// `WaitForDevEvent`/`CancelWaitForDevEvent` deliberately do **not** take the
+/// gate: cancel must reach the library while a wait is parked, or the pair
+/// deadlocks.
+type FfiGate = Arc<std::sync::Mutex<()>>;
+
+/// Acquire a gate, recovering from a poisoned mutex.
+///
+/// A panic while a call held the gate must not make every later call fail; the
+/// protected invariant is the vendor library's, and it is still intact after a
+/// panic in the caller.
+fn gate_lock(gate: &FfiGate) -> std::sync::MutexGuard<'_, ()> {
+    gate.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+// ---------------------------------------------------------------------------
 // Owned native resources
 // ---------------------------------------------------------------------------
 
@@ -102,10 +127,12 @@ pub struct NativeDevice {
     raw: usize,
     name: String,
     exposed: DeviceHandle,
+    gate: FfiGate,
 }
 
 impl Drop for NativeDevice {
     fn drop(&mut self) {
+        let _gate = gate_lock(&self.gate);
         if self.raw != 0 {
             let _ = self.api.dis_connect_dev(self.raw as DEVHANDLE);
         }
@@ -118,6 +145,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn state(&self) -> ProviderResult<u32> {
+        let _gate = gate_lock(&self.gate);
         let c_name = cstring(&self.name, "GetDevState")?;
         let mut state: ULONG = 0;
         let ret = self.api.get_dev_state(c_name.as_ptr() as *mut CHAR, &mut state);
@@ -129,6 +157,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn lock(&self, timeout: Duration) -> ProviderResult<()> {
+        let _gate = gate_lock(&self.gate);
         let ret = self.api.lock_dev(self.raw as DEVHANDLE, timeout.as_millis() as ULONG);
         if ret == SAR_OK {
             Ok(())
@@ -138,6 +167,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn unlock(&self) -> ProviderResult<()> {
+        let _gate = gate_lock(&self.gate);
         let ret = self.api.unlock_dev(self.raw as DEVHANDLE);
         if ret == SAR_OK {
             Ok(())
@@ -147,6 +177,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn transmit(&self, command: &[u8]) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut command_buf = command.to_vec();
         let mut response = vec![0u8; SYM_BUF_LEN];
         let mut response_len: ULONG = response.len() as ULONG;
@@ -165,6 +196,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn random(&self, len: usize) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut buf = vec![0u8; len];
         let ret = self.api.gen_random(self.raw as DEVHANDLE, buf.as_mut_ptr(), len as ULONG);
         if ret != SAR_OK {
@@ -174,6 +206,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn info(&self) -> ProviderResult<DeviceInfo> {
+        let _gate = gate_lock(&self.gate);
         let mut raw_info: DEVINFO = unsafe { std::mem::zeroed() };
         let ret = self.api.get_dev_info(self.raw as DEVHANDLE, &mut raw_info);
         if ret != SAR_OK {
@@ -192,6 +225,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn set_label(&self, label: &str) -> ProviderResult<()> {
+        let _gate = gate_lock(&self.gate);
         let mut c_label = cstring(label, "SetLabel")?.into_bytes_with_nul();
         let ret = self.api.set_label(self.raw as DEVHANDLE, c_label.as_mut_ptr() as *mut CHAR);
         if ret == SAR_OK {
@@ -219,6 +253,7 @@ impl DeviceGuard for Arc<NativeDevice> {
     }
 
     fn open_application(&self, name: &str) -> ProviderResult<Box<dyn ApplicationGuard>> {
+        let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "OpenApplication")?;
         let mut raw: HAPPLICATION = std::ptr::null_mut();
         let ret = self
@@ -232,6 +267,7 @@ impl DeviceGuard for Arc<NativeDevice> {
             device: Arc::clone(self),
             raw: raw as usize,
             exposed,
+            gate: Arc::clone(&self.gate),
         })))
     }
 }
@@ -245,6 +281,7 @@ impl NativeDevice {
         id: &[u8],
         public_key: *mut ECCPUBLICKEYBLOB,
     ) -> ProviderResult<Box<dyn DigestGuard>> {
+        let _gate = gate_lock(&self.gate);
         let mut raw: HANDLE = std::ptr::null_mut();
         let mut id_buf = id.to_vec();
         let ret = self.api.digest_init(
@@ -262,6 +299,7 @@ impl NativeDevice {
             device: Arc::clone(self),
             raw: raw as usize,
             exposed: DigestHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
+            gate: Arc::clone(&self.gate),
         })))
     }
 
@@ -284,10 +322,12 @@ pub struct NativeApplication {
     device: Arc<NativeDevice>,
     raw: usize,
     exposed: AppHandle,
+    gate: FfiGate,
 }
 
 impl Drop for NativeApplication {
     fn drop(&mut self) {
+        let _gate = gate_lock(&self.gate);
         if self.raw != 0 {
             let _ = self.device.api.close_application(self.raw as DEVHANDLE);
         }
@@ -300,6 +340,7 @@ impl ApplicationGuard for Arc<NativeApplication> {
     }
 
     fn enum_containers(&self) -> ProviderResult<Vec<String>> {
+        let _gate = gate_lock(&self.gate);
         let mut size: ULONG = 0;
         let ret = self
             .device
@@ -317,6 +358,7 @@ impl ApplicationGuard for Arc<NativeApplication> {
     }
 
     fn verify_pin(&self, pin: &str) -> ProviderResult<PinOutcome> {
+        let _gate = gate_lock(&self.gate);
         let c_pin = cstring(pin, "VerifyPIN")?;
         let mut retry_count: ULONG = 0;
         let ret = self
@@ -333,6 +375,7 @@ impl ApplicationGuard for Arc<NativeApplication> {
     }
 
     fn open_container(&self, name: &str) -> ProviderResult<Box<dyn ContainerGuard>> {
+        let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "OpenContainer")?;
         let mut raw: HCONTAINER = std::ptr::null_mut();
         let ret = self
@@ -346,10 +389,12 @@ impl ApplicationGuard for Arc<NativeApplication> {
             application: Arc::clone(self),
             raw: raw as usize,
             exposed: ContainerHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
+            gate: Arc::clone(&self.gate),
         })))
     }
 
     fn delete_container(&self, name: &str) -> ProviderResult<()> {
+        let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "DeleteContainer")?;
         let ret = self
             .device
@@ -363,6 +408,7 @@ impl ApplicationGuard for Arc<NativeApplication> {
     }
 
     fn create_container(&self, name: &str) -> ProviderResult<Box<dyn ContainerGuard>> {
+        let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "CreateContainer")?;
         let mut raw: HCONTAINER = std::ptr::null_mut();
         let ret = self.device.api.create_container(
@@ -377,6 +423,7 @@ impl ApplicationGuard for Arc<NativeApplication> {
             application: Arc::clone(self),
             raw: raw as usize,
             exposed: ContainerHandle(NEXT_NESTED_HANDLE.fetch_add(1, Ordering::Relaxed)),
+            gate: Arc::clone(&self.gate),
         })))
     }
 }
@@ -386,10 +433,12 @@ pub struct NativeContainer {
     application: Arc<NativeApplication>,
     raw: usize,
     exposed: ContainerHandle,
+    gate: FfiGate,
 }
 
 impl Drop for NativeContainer {
     fn drop(&mut self) {
+        let _gate = gate_lock(&self.gate);
         if self.raw != 0 {
             let _ = self.application.device.api.close_container(self.raw as DEVHANDLE);
         }
@@ -402,6 +451,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn container_type(&self) -> ProviderResult<u32> {
+        let _gate = gate_lock(&self.gate);
         let mut kind: ULONG = 0;
         let ret = self
             .application
@@ -416,6 +466,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn export_certificate(&self, sign_flag: bool) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut buf = vec![0u8; CERT_BUF_LEN];
         let mut size: ULONG = buf.len() as ULONG;
         let ret = self.application.device.api.export_certificate(
@@ -432,6 +483,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn import_certificate(&self, sign_flag: bool, cert: &[u8]) -> ProviderResult<()> {
+        let _gate = gate_lock(&self.gate);
         let mut cert_buf = cert.to_vec();
         let ret = self.application.device.api.import_certificate(
             self.raw as DEVHANDLE,
@@ -447,6 +499,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn sign_ecc(&self, digest: &[u8]) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut data = digest.to_vec();
         let mut signature: ECCSIGNATUREBLOB = unsafe { std::mem::zeroed() };
         let ret = self.application.device.api.ecc_sign_data(
@@ -467,6 +520,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn gen_ecc_key_pair(&self, alg_id: u32) -> ProviderResult<EccPublicKey> {
+        let _gate = gate_lock(&self.gate);
         let mut blob: ECCPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
         blob.BitLen = 256;
         let ret = self
@@ -485,6 +539,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn gen_rsa_key_pair(&self, bits: u32) -> ProviderResult<RsaPublicKey> {
+        let _gate = gate_lock(&self.gate);
         let mut blob: RSAPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
         let ret = self
             .application
@@ -503,6 +558,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn sign_rsa(&self, data: &[u8]) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut data_buf = data.to_vec();
         let mut signature = vec![0u8; RSA_SIG_BUF_LEN];
         let mut sig_len: ULONG = signature.len() as ULONG;
@@ -521,6 +577,7 @@ impl ContainerGuard for Arc<NativeContainer> {
     }
 
     fn set_symm_key(&self, alg_id: u32, key: &[u8]) -> ProviderResult<()> {
+        let _gate = gate_lock(&self.gate);
         let mut key_buf = key.to_vec();
         let ret = self.application.device.api.set_symm_key(
             self.raw as DEVHANDLE,
@@ -542,6 +599,7 @@ impl ContainerGuard for Arc<NativeContainer> {
         padding: u32,
         data: &[u8],
     ) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut param = block_cipher_param(iv, padding);
         let mut data_buf = data.to_vec();
         let mut out = vec![0u8; SYM_BUF_LEN];
@@ -569,6 +627,7 @@ impl ContainerGuard for Arc<NativeContainer> {
         padding: u32,
         data: &[u8],
     ) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut param = block_cipher_param(iv, padding);
         let mut data_buf = data.to_vec();
         let mut out = vec![0u8; SYM_BUF_LEN];
@@ -619,10 +678,12 @@ pub struct NativeDigest {
     device: Arc<NativeDevice>,
     raw: usize,
     exposed: DigestHandle,
+    gate: FfiGate,
 }
 
 impl Drop for NativeDigest {
     fn drop(&mut self) {
+        let _gate = gate_lock(&self.gate);
         if self.raw != 0 {
             let _ = self.device.api.close_hash(self.raw as DEVHANDLE);
         }
@@ -635,6 +696,7 @@ impl DigestGuard for Arc<NativeDigest> {
     }
 
     fn update(&self, data: &[u8]) -> ProviderResult<()> {
+        let _gate = gate_lock(&self.gate);
         let mut data_buf = data.to_vec();
         let ret = self
             .device
@@ -648,6 +710,7 @@ impl DigestGuard for Arc<NativeDigest> {
     }
 
     fn finalize(&self) -> ProviderResult<Vec<u8>> {
+        let _gate = gate_lock(&self.gate);
         let mut buf = vec![0u8; HASH_BUF_LEN];
         let mut len: ULONG = buf.len() as ULONG;
         let ret = self
@@ -671,6 +734,7 @@ pub struct NativeSkfProvider {
     alias: String,
     api: Arc<SkfApi>,
     next_handle: AtomicU64,
+    gate: FfiGate,
 }
 
 impl NativeSkfProvider {
@@ -690,6 +754,7 @@ impl NativeSkfProvider {
             alias: alias.into(),
             api: Arc::new(SkfApi::new(lib)),
             next_handle: AtomicU64::new(1),
+            gate: Arc::new(std::sync::Mutex::new(())),
         })
     }
 
@@ -704,6 +769,7 @@ impl NativeSkfProvider {
             alias: alias.into(),
             api,
             next_handle: AtomicU64::new(1),
+            gate: Arc::new(std::sync::Mutex::new(())),
         }
     }
 
@@ -730,6 +796,7 @@ impl SkfProvider for NativeSkfProvider {
     }
 
     fn enum_devices(&self, present_only: bool) -> ProviderResult<Vec<String>> {
+        let _gate = gate_lock(&self.gate);
         let mut size: ULONG = 0;
         let ret = self
             .api
@@ -748,6 +815,7 @@ impl SkfProvider for NativeSkfProvider {
     }
 
     fn device_state(&self, name: &str) -> ProviderResult<u32> {
+        let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "GetDevState")?;
         let mut state: ULONG = 0;
         let ret = self.api.get_dev_state(c_name.as_ptr() as *mut CHAR, &mut state);
@@ -792,6 +860,7 @@ impl SkfProvider for NativeSkfProvider {
     }
 
     fn open_device(&self, name: &str) -> ProviderResult<Box<dyn DeviceGuard>> {
+        let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "ConnectDev")?;
         let mut raw: DEVHANDLE = std::ptr::null_mut();
         let ret = self.api.connect_dev(c_name.as_ptr() as *mut CHAR, &mut raw);
@@ -804,6 +873,7 @@ impl SkfProvider for NativeSkfProvider {
             raw: raw as usize,
             name: name.to_string(),
             exposed,
+            gate: Arc::clone(&self.gate),
         })))
     }
 }
