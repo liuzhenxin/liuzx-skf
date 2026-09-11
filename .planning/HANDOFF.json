@@ -1,20 +1,39 @@
 {
   "version": "1.0",
-  "timestamp": "2026-09-11T18:50:00.000Z",
+  "timestamp": "2026-09-11T19:40:00.000Z",
   "phase": "02",
   "phase_name": "session-authorization-and-resource-ownership",
   "phase_dir": ".planning/phases/02-session-authorization-and-resource-ownership",
   "plan": 4,
-  "task": 1,
+  "task": 2,
   "total_tasks": 14,
   "status": "paused",
   "completed_tasks": [
-    {"id": "02-01", "name": "Session skeleton and registry", "status": "done", "commit": "a4d849a"},
-    {"id": "02-02", "name": "Per-session authorization with expiry", "status": "done", "commit": "43506b0"},
-    {"id": "02-03", "name": "Opaque session-owned handles", "status": "done", "commit": "fed1550"}
+    {
+      "id": "02-01",
+      "name": "Session skeleton and registry",
+      "status": "done",
+      "commit": "a4d849a"
+    },
+    {
+      "id": "02-02",
+      "name": "Per-session authorization with expiry",
+      "status": "done",
+      "commit": "43506b0"
+    },
+    {
+      "id": "02-03",
+      "name": "Opaque session-owned handles",
+      "status": "done",
+      "commit": "fed1550"
+    }
   ],
   "remaining_tasks": [
-    {"id": "02-04", "name": "Protocol extraction, domain migration, release-on-error (wave 4, 4 tasks)", "status": "not_started"}
+    {
+      "id": "02-04",
+      "name": "Protocol extraction, domain migration, release-on-error (wave 4, 4 tasks)",
+      "status": "not_started"
+    }
   ],
   "blockers": [],
   "human_actions_pending": [
@@ -35,12 +54,28 @@
     }
   ],
   "decisions": [
-    {"decision": "A client-supplied integer is never converted to a native handle", "rationale": "That conversion reached the vendor library unchecked and killed the service process; the DisConnectDev fixture was updated as a documented intentional contract change", "phase": "02"},
-    {"decision": "Digest rejection message preserved byte-for-byte while the handle format changed", "rationale": "Only the rejection is recorded by fixtures; DigestInit's success shape is not, so the format was free to change", "phase": "02"},
-    {"decision": "HandleError is a fieldless enum and HandleTable's Debug reports counts only", "rationale": "A rejection must not echo the offending value, and a handle string must never reach a log line", "phase": "02"},
-    {"decision": "Session state is held by value, never behind an Arc", "rationale": "It holds Send-but-not-Sync provider guards, so an Arc would break Send and need a forbidden unsafe impl Sync", "phase": "02"}
+    {
+      "decision": "A client-supplied integer is never converted to a native handle",
+      "rationale": "That conversion reached the vendor library unchecked and killed the service process; the DisConnectDev fixture was updated as a documented intentional contract change",
+      "phase": "02"
+    },
+    {
+      "decision": "Digest rejection message preserved byte-for-byte while the handle format changed",
+      "rationale": "Only the rejection is recorded by fixtures; DigestInit's success shape is not, so the format was free to change",
+      "phase": "02"
+    },
+    {
+      "decision": "HandleError is a fieldless enum and HandleTable's Debug reports counts only",
+      "rationale": "A rejection must not echo the offending value, and a handle string must never reach a log line",
+      "phase": "02"
+    },
+    {
+      "decision": "Session state is held by value, never behind an Arc",
+      "rationale": "It holds Send-but-not-Sync provider guards, so an Arc would break Send and need a forbidden unsafe impl Sync",
+      "phase": "02"
+    }
   ],
   "uncommitted_files": [],
-  "next_action": "Run /gsd-execute-phase 2. Discovery skips 02-01..02-03 (all have SUMMARY.md) and runs wave 4 = plan 02-04, whose first task extracts RpcRequest/RpcResponse/Language and typed parameter helpers into src/protocol/ without changing any branch logic.",
-  "context_notes": "Waves 1-3 landed cleanly: 80 tests pass, 0 warnings, 37/37 fixtures match with one documented contract change. Ten of eleven requirements are complete; only RES-04 (release on native error paths) remains, which is why wave 4 exists. Wave 4 is the structurally heaviest step: it extracts protocol/ and moves 12 branches into domain/, so RES-04's verification depends on injecting failures through the fake provider and asserting Close* was recorded. Two precedents now exist that wave 4 must follow: an intentional contract change is recorded in the fixture README plus provenance and never hidden by widening normalize; and after any scripted multi-site edit the diff is read hunk by hunk, because the compiler stayed silent on a degenerate match and an id-less error helper that had already been fixed once as M-04."
+  "next_action": "Run /gsd-execute-phase 2. Discovery skips 02-01..02-03 and resumes 02-04 at task 02-04-02, which migrates CreateContainer, DeleteContainer, GetContainerType, and ImportCertificate into src/domain/container.rs using the guards from src/provider and the Params helpers from src/protocol.",
+  "context_notes": "Wave 4 task 1 (protocol extraction) is done. Remaining: migrate 4 container branches, migrate 8 crypto/keys/pin branches, then verify RES-04 and sign off 02-VALIDATION.md. The fixtures covering those 12 branches recorded REJECTION paths only, so they catch a changed error code or message but say nothing about success paths; RES-04's release guarantee must therefore be proven by injecting failures through the fake provider and asserting Close* was recorded. A new lesson from this wave: a large group of device-dependent methods drifting at once can be a transient (the middleware reports no devices briefly after a service is killed), not a regression. The pre-Phase-2 binary was built in a worktree and reproduced it, which is how the misattribution was avoided. EnumDevice and FindCertificates are now declared environment-volatile for that reason."
 }
