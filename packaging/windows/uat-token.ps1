@@ -11,8 +11,9 @@
 #   B4  concurrent signing  : two sessions sign at once; no crash, both succeed
 #   B5  slow-op isolation   : SetLanguage stays responsive during FindCertificates
 #
-# B2 (physical removal), B6 (release on a real native error), B7 (real timeout)
-# and B8 (vendor concurrency documentation) are printed as manual steps.
+# It probes every container with a 32-byte digest first, because SignData signs a
+# precomputed digest (SM2 expects 32 bytes) and some containers (e.g. `admin`) are
+# not signing containers. B2/B6/B7/B8 are printed as manual steps.
 #
 # Uses only System.Net.WebSockets (no Node/Rust needed).
 # ============================================================================
@@ -63,6 +64,8 @@ function Send-Rpc($ws, [string]$Method, $Params, [int]$Id) {
     return Receive-Rpc $ws
 }
 
+function Brief($response) { return ($response | ConvertTo-Json -Compress -Depth 6) }
+
 # --- inputs -----------------------------------------------------------------
 if ([string]::IsNullOrEmpty($Provider)) {
     $cfg = Join-Path ${env:ProgramFiles(x86)} "LiuZX\SKF Service\config\skf.yaml"
@@ -92,49 +95,71 @@ if (-not $ap) { throw "no application on device '$device'" }
 $app = @($ap)[0]
 $cn = (Send-Rpc $bootstrap "EnumContainer" @($Provider, $device, $app) 3).result
 if (-not $cn) { throw "no container on '$device/$app'" }
-$container = @($cn)[0]
-$certKey = "$Provider/$device/$app/$container"
-Write-Host "device='$device' app='$app' container='$container'"
+$containers = @($cn)
+Write-Host "device='$device' app='$app' containers=$($containers -join ', ')"
+Write-Host ""
+
+# --- authorize A and find a container that can sign -------------------------
+# SignData signs a precomputed digest; SM2 expects 32 bytes.
+$digest = [Convert]::ToBase64String((New-Object byte[] 32))
+$firstKey = "$Provider/$device/$app/$($containers[0])"
+
+$a = New-Socket $Url
+$pinA = Send-Rpc $a "CheckPIN" @("$Provider/$device/$app", $Pin) 10
+if ($pinA.error -ne 0) { throw "CheckPIN on A failed: $(Brief $pinA)" }
+
+$signKey = $null
+$probeId = 100
+foreach ($c in $containers) {
+    $key = "$Provider/$device/$app/$c"
+    $type = Send-Rpc $a "GetContainerType" @($Provider, $device, $app, $c) $probeId; $probeId++
+    $probe = Send-Rpc $a "SignData" @($key, $digest) $probeId; $probeId++
+    Write-Host ("container '{0}' type={1} SignData -> {2}" -f $c, (Brief $type), (Brief $probe))
+    if ($probe.error -eq 0) { $signKey = $key; Write-Host "selected signable container: $c"; break }
+}
+if (-not $signKey) {
+    Write-Host "WARNING: no container accepted a 32-byte digest signature."
+    Write-Host "         B4 will be reported as BLOCKED (container/input issue, not concurrency)."
+}
 Write-Host ""
 
 # --- B1: session isolation --------------------------------------------------
 try {
-    $a = New-Socket $Url
-    $pinResponse = Send-Rpc $a "CheckPIN" @("$Provider/$device/$app", $Pin) 10
-    if ($pinResponse.error -ne 0) { throw "CheckPIN on A failed: $($pinResponse | ConvertTo-Json -Compress)" }
-
-    $data = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("uat-v030 data"))
     $b = New-Socket $Url
-    $bSign = Send-Rpc $b "SignData" @($certKey, $data) 11
+    $bSign = Send-Rpc $b "SignData" @($firstKey, $digest) 11
     if ($bSign.error -ne -10) {
-        throw "session B SignData must be refused with -10 without its own CheckPIN, got: $($bSign | ConvertTo-Json -Compress)"
+        throw "session B SignData must be refused with -10 without its own CheckPIN, got: $(Brief $bSign)"
     }
     Record "B1" $true "A authorized; B refused with -10 as expected"
 } catch { Record "B1" $false $_.Exception.Message }
 
 # --- B4: concurrent signing -------------------------------------------------
-try {
-    $pinB = Send-Rpc $b "CheckPIN" @("$Provider/$device/$app", $Pin) 12
-    if ($pinB.error -ne 0) { throw "CheckPIN on B failed: $($pinB | ConvertTo-Json -Compress)" }
+if (-not $signKey) {
+    Record "B4" $false "BLOCKED: no signable container found (see probe output above)"
+} else {
+    try {
+        $pinB = Send-Rpc $b "CheckPIN" @("$Provider/$device/$app", $Pin) 12
+        if ($pinB.error -ne 0) { throw "CheckPIN on B failed: $(Brief $pinB)" }
 
-    # Fire both without waiting, then collect: this overlaps the two device calls.
-    Send-Only $a "SignData" @($certKey, $data) 20
-    Send-Only $b "SignData" @($certKey, $data) 21
-    $ra = Receive-Rpc $a
-    $rb = Receive-Rpc $b
-    if ($ra.error -ne 0) { throw "concurrent SignData A failed: $($ra | ConvertTo-Json -Compress)" }
-    if ($rb.error -ne 0) { throw "concurrent SignData B failed: $($rb | ConvertTo-Json -Compress)" }
-    if (-not $ra.result -or -not $rb.result) { throw "a concurrent signature was empty" }
+        # Fire both without waiting; collect both regardless of outcome.
+        Send-Only $a "SignData" @($signKey, $digest) 20
+        Send-Only $b "SignData" @($signKey, $digest) 21
+        $ra = Receive-Rpc $a
+        $rb = Receive-Rpc $b
+        Write-Host ("concurrent A -> {0}" -f (Brief $ra))
+        Write-Host ("concurrent B -> {0}" -f (Brief $rb))
+        if ($ra.error -ne 0) { throw "concurrent SignData A failed: $(Brief $ra)" }
+        if ($rb.error -ne 0) { throw "concurrent SignData B failed: $(Brief $rb)" }
+        if (-not $ra.result -or -not $rb.result) { throw "a concurrent signature was empty" }
 
-    $alive = Send-Rpc $a "SetLanguage" @("EN") 22
-    if ($alive.error -ne 0) { throw "service became unresponsive after concurrency: $($alive | ConvertTo-Json -Compress)" }
-    Record "B4" $true "two overlapping SignData calls succeeded; service still responsive"
-} catch { Record "B4" $false $_.Exception.Message }
+        $alive = Send-Rpc $a "SetLanguage" @("EN") 22
+        if ($alive.error -ne 0) { throw "service became unresponsive after concurrency: $(Brief $alive)" }
+        Record "B4" $true "two overlapping SignData calls succeeded on '$signKey'; service still responsive"
+    } catch { Record "B4" $false $_.Exception.Message }
+}
 
 # --- B5: a slow device operation must not stall another session -------------
 try {
-    # FindCertificates enumerates every device/app/container/certificate and is
-    # read-only; fire it on A, then time SetLanguage on B.
     Send-Only $a "FindCertificates" @("") 30
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $langResponse = Send-Rpc $b "SetLanguage" @("EN") 31
