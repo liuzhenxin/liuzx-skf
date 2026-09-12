@@ -46,10 +46,11 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - ✓ 全仓储 `cargo fmt --all -- --check` 通过（隔离的 formatting-only 提交），且未引入 `rustfmt.toml` — Phase 4（`04-01-SUMMARY.md`）
 - ✓ `cargo clippy --all-targets -- -D warnings` 零 warning；唯一保留的 allow 限于镜像 SKF C ABI 的两个函数且带注释；工具链由 `rust-toolchain.toml` 固定 1.93.0 — Phase 4（`src/skf/api.rs`、`rust-toolchain.toml`）
 - ✓ CI 在 PR 与 `main`/`dev` 推送时运行 fmt、clippy、硬件无关测试、x86_64 macOS 全量（含 37 夹具契约重放）与 i686 编译检查，并用 `gate-selftest` 证明门禁对失败测试敏感 — Phase 4（`.github/workflows/ci.yml`、`docs/CI.md`）
+- ✓ 服务逐阶段上报 `StartPending`，仅在监听器绑定且配置解析后报 `Running`；启动失败以 `ServiceSpecific(1..4)` 退出并写状态文件，`status` 报告阶段 — Phase 5（`src/service_state.rs`、`src/win_service.rs`、`docs/WINDOWS-SERVICE.md`）
+- ✓ 安装器对安装目录施加并校验限制性 ACL（SYSTEM/Administrators 全控，Users 仅 RX）；升级/卸载轮询等待进程退出与文件解锁，不留下残留注册或锁定文件 — Phase 5（`packaging/windows/install.ps1`、`uninstall.ps1`、`verify-service.ps1`）
 
 ### Active
 
-- [ ] Windows SCM 仅在监听器就绪后报告 Running，启动失败返回非零状态并触发恢复策略
 - [ ] 操作员可以通过不泄露敏感信息的健康诊断了解配置、端口、provider 和驱动状态
 - [ ] Windows 服务日志有级别、关联信息、轮转和保留策略，不会无限增长
 - [ ] Release 产物包含可校验的摘要和构建元数据，并执行包结构与启动冒烟检查
@@ -72,6 +73,7 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - Phase 3 后，每个请求的 dispatcher 整体运行在 Tokio 阻塞池上，厂商调用与守卫析构都不占用 async worker；所有经守卫的 native 调用共享一把每 provider 全局锁（wait/cancel 豁免），非 wait 请求有 30s 超时。当前 `cargo test` 运行 133 个 Rust 测试。
 - 当前网络 API没有传输认证；服务模式默认回环地址是重要的临时安全边界（Phase 3 已将非回环绑定改为显式 opt-in）。
 - Windows Release 工作流能构建并检查架构，但尚未自动验证服务安装、启动就绪、停止、升级或卸载。
+- Windows 服务现按阶段上报启动状态（`service-state.json`），并以分类非零退出码触发 `sc failure` 重启；安装器限制安装目录 ACL 并在升级/卸载时等待文件解锁。SVC 的 SCM 实机行为仍需在 Windows VM 上按 `packaging/windows/verify-service.ps1` 验证。
 - `.github/workflows/ci.yml` 已是 PR/主分支门禁：fmt、clippy(-D warnings)、硬件无关测试、x86_64 macOS 全量（含契约重放）、i686 编译检查、门禁 self-test。真正阻断合并仍需仓库分支保护设置（见 `docs/CI.md`）。
 - `rust-toolchain.toml` 固定 Rust 1.93.0；本地与 CI 的 fmt/clippy 基线因此一致。
 - `IssueCertificate(double=true)` 的测试加密证书目前不保证与生成的加密私钥匹配，不应视为生产证书流程。
@@ -116,4 +118,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-12 after Phase 4 (Format/Lint Normalization and CI Gate)*
+*Last updated: 2026-09-12 after Phase 5 (Windows Service Reliability)*
