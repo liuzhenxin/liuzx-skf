@@ -59,18 +59,26 @@ Hosted CI still runs the fixture **structural** checks
 A self-hosted x86_64 macOS runner with the middleware could restore the full
 replay as a hosted job.
 
-## Branch protection (required, set in GitHub, not in this repository)
+## Branch protection
 
-Repository files cannot configure branch protection. To make the gate actually
-block a merge, an administrator must:
+Branch protection is a repository setting, not a file. It is **configured** for
+`main`: merges require these CI checks to pass (strict — the branch must be up to
+date):
 
-1. Open **Settings → Branches** and add a branch protection rule for `main`.
-2. Enable **Require status checks to pass before merging**.
-3. Select the CI jobs: `fmt`, `clippy`, `test`, `test-full`, `windows-i686`,
-   `gate-selftest`.
-4. Optionally enable **Do not allow bypassing the above settings**.
+- `Formatting`
+- `Clippy`
+- `Hardware-free tests (Linux)`
+- `Windows i686 compile check`
+- `Gate self-test (a failing test must be caught)`
 
-Without step 2–3, CI still runs but a red check does not block a merge.
+To re-apply or audit it:
+
+```bash
+gh api repos/:owner/:repo/branches/main/protection \
+  --jq '.required_status_checks.contexts'
+```
+
+Without this setting, CI still runs but a red check does not block a merge.
 
 ## What `gate-selftest` proves — and what it does not
 
