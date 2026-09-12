@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: milestone
-current_phase_name: observability, diagnostics, and release verification
-status: executing
-stopped_at: "Completed 06-03: phase 6 complete (3/3). v0.3.0 milestone scope complete; run audit/complete-milestone next."
+current_phase_name: (none - v0.3.0 shipped)
+status: milestone_complete
+stopped_at: "Milestone v0.3.0 Production Hardening shipped (6/6 phases, 20/20 plans, 44/44 requirements). Awaiting next milestone."
 last_updated: "2026-09-12T11:26:23.662Z"
 progress:
   total_phases: 6
@@ -25,10 +25,9 @@ See: .planning/PROJECT.md (updated 2026-09-11)
 
 ## Current Position
 
-Phase: 06
-Plan: Not started
-Status: Ready to execute
-Last Activity Description: v0.3.0 milestone completed and archived
+Milestone: v0.3.0 Production Hardening — SHIPPED 2026-09-12
+Next action: define the next milestone with `$gsd-new-milestone`
+Last Activity Description: v0.3.0 milestone archived and tagged
 
 Progress: [██░░░░░░░░] 17%  (1/6 phases, 4/4 plans in Phase 1)
 
