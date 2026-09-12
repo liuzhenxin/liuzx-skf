@@ -71,9 +71,9 @@ pub fn init_console() {
 pub fn init_service_file(dir: &Path) -> std::io::Result<()> {
     let logs_dir = dir.join("logs");
     std::fs::create_dir_all(&logs_dir)?;
-    let logger = RotatingFileLogger::new(logs_dir.join(LOG_FILE_NAME), MAX_LOG_BYTES, KEEP_LOG_FILES)?;
-    log::set_boxed_logger(Box::new(logger))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let logger =
+        RotatingFileLogger::new(logs_dir.join(LOG_FILE_NAME), MAX_LOG_BYTES, KEEP_LOG_FILES)?;
+    log::set_boxed_logger(Box::new(logger)).map_err(std::io::Error::other)?;
     log::set_max_level(level_from_env());
     Ok(())
 }
@@ -220,11 +220,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "skf-logging-test-{}-{}",
-            std::process::id(),
-            name
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("skf-logging-test-{}-{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
@@ -242,8 +239,8 @@ mod tests {
     fn json_line_has_expected_fields() {
         let dir = temp_dir("fields");
         let path = dir.join(LOG_FILE_NAME);
-        let logger = RotatingFileLogger::new(path.clone(), MAX_LOG_BYTES, KEEP_LOG_FILES)
-            .expect("logger");
+        let logger =
+            RotatingFileLogger::new(path.clone(), MAX_LOG_BYTES, KEEP_LOG_FILES).expect("logger");
         log::Log::log(
             &logger,
             &log::Record::builder()
@@ -300,8 +297,8 @@ mod tests {
     fn message_with_newline_stays_one_line() {
         let dir = temp_dir("newline");
         let path = dir.join(LOG_FILE_NAME);
-        let logger = RotatingFileLogger::new(path.clone(), MAX_LOG_BYTES, KEEP_LOG_FILES)
-            .expect("logger");
+        let logger =
+            RotatingFileLogger::new(path.clone(), MAX_LOG_BYTES, KEEP_LOG_FILES).expect("logger");
         log::Log::log(
             &logger,
             &log::Record::builder()
