@@ -34,3 +34,11 @@ pub mod skf;
 
 #[cfg(windows)]
 pub mod win_service;
+
+#[cfg(test)]
+mod deliberate_ci_failure {
+    #[test]
+    fn this_deliberately_fails_to_prove_the_gate_blocks() {
+        assert!(false, "deliberate CI gate self-test");
+    }
+}
