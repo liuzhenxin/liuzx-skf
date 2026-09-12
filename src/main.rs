@@ -363,6 +363,17 @@ fn is_wait_method(method: &str) -> bool {
     matches!(method, "WaitForDevEvent" | "CancelWaitForDevEvent")
 }
 
+/// Whether the operator disabled methods that are restricted for safety.
+fn restricted_enabled() -> bool {
+    matches!(
+        std::env::var(skf_service::domain::classification::RESTRICT_ENV)
+            .ok()
+            .as_deref()
+            .map(|v| v.trim().to_ascii_lowercase()),
+        Some(v) if v == "1" || v == "true"
+    )
+}
+
 /// Convert a hex string to bytes
 fn temp_file_path(file_name: &str) -> String {
     std::env::temp_dir()
@@ -442,7 +453,42 @@ fn handle_request(
         req.params.len()
     );
 
+    // Protocol version: absent means a v0.2.0 client and is treated as version 1.
+    // A client asking for a newer version gets a documented rejection rather than
+    // a silently wrong response.
+    const CURRENT_API_VERSION: u32 = 1;
+    if let Some(requested) = req.api_version {
+        if requested > CURRENT_API_VERSION {
+            return RpcResponse::err(
+                -1,
+                format!(
+                    "Unsupported apiVersion {}; this service supports up to {}",
+                    requested, CURRENT_API_VERSION
+                ),
+                id,
+            );
+        }
+    }
+
+    // Methods restricted for safety stay present but can be disabled by an
+    // operator without changing the default (fixture-preserving) behaviour.
+    if let Some(rejection) = skf_service::domain::classification::restricted_rejection(
+        req.method.as_str(),
+        restricted_enabled(),
+        id.clone(),
+    ) {
+        return rejection;
+    }
+
     match req.method.as_str() {
+        "GetProtocolVersion" => RpcResponse::ok(
+            serde_json::json!({
+                "min": 1u32,
+                "current": CURRENT_API_VERSION,
+                "service": env!("CARGO_PKG_VERSION"),
+            }),
+            id,
+        ),
         "SetLanguage" => {
             if let Some(l) = req.params.first().and_then(|v| v.as_str()) {
                 *lang = match l.to_uppercase().as_str() {

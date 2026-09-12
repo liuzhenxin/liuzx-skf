@@ -169,9 +169,12 @@ fn every_expected_method_has_a_fixture() {
     let fixtures = load_all().expect("fixtures directory readable");
     let recorded: Vec<String> = fixtures.iter().map(|f| f.method.clone()).collect();
 
+    // Additive (post-v0.2.0) methods cannot have a pre-refactor fixture; they are
+    // exempted explicitly rather than silently ignored.
     let missing: Vec<&str> = common::EXPECTED_METHODS
         .iter()
         .copied()
+        .filter(|method| !common::ADDITIVE_METHODS.contains(method))
         .filter(|method| !recorded.iter().any(|r| r == method))
         .collect();
     assert!(
@@ -179,6 +182,16 @@ fn every_expected_method_has_a_fixture() {
         "methods without a fixture: {:?}",
         missing
     );
+
+    // An additive method must not gain a fixture by accident: its behaviour is not
+    // part of the frozen v0.2.0 contract.
+    for method in common::ADDITIVE_METHODS {
+        assert!(
+            !recorded.iter().any(|r| r == method),
+            "additive method {} must not have a v0.2.0 fixture",
+            method
+        );
+    }
 
     let unexpected: Vec<&String> = recorded
         .iter()

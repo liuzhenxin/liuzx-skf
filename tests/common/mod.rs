@@ -216,4 +216,10 @@ pub const EXPECTED_METHODS: &[&str] = &[
     "DigestUpdate",
     "DigestFinal",
     "CloseHash",
+    "GetProtocolVersion",
 ];
+
+/// Methods added after the v0.2.0 freeze. They have no pre-refactor recording, so
+/// the fixture-completeness test exempts them. Adding to this list is a contract
+/// addition and must be documented in `RELEASE-NOTES.md`.
+pub const ADDITIVE_METHODS: &[&str] = &["GetProtocolVersion"];

@@ -22,6 +22,10 @@ pub struct RpcRequest {
     #[serde(default)]
     pub params: Vec<serde_json::Value>,
     pub id: Option<serde_json::Value>,
+    /// Optional client protocol version. v0.2.0 clients omit it, which is
+    /// treated as version 1; a higher value is rejected by the dispatcher.
+    #[serde(default, rename = "apiVersion")]
+    pub api_version: Option<u32>,
 }
 
 /// One outgoing response.
@@ -88,6 +92,23 @@ mod tests {
                 .expect("deserialize");
         assert_eq!(request.params.len(), 1);
         assert!(request.id.is_none());
+    }
+
+    #[test]
+    fn api_version_is_optional_and_defaults_to_absent() {
+        let request: RpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","method":"SetLanguage","params":[],"id":1}"#)
+                .expect("parse");
+        assert_eq!(request.api_version, None);
+    }
+
+    #[test]
+    fn api_version_is_read_when_present() {
+        let request: RpcRequest = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","method":"SetLanguage","params":[1],"id":1,"apiVersion":1}"#,
+        )
+        .expect("parse");
+        assert_eq!(request.api_version, Some(1));
     }
 
     #[test]

@@ -88,6 +88,45 @@ pub const CLASSIFIED_METHODS: &[(&str, OperationClass)] = &[
     ("CloseHash", OperationClass::ReadOnly),
 ];
 
+/// Methods that are present but may be restricted for safety in a deployment.
+///
+/// They remain implemented and work by default; an operator can disable them with
+/// [`RESTRICT_ENV`] without changing the frozen contract.
+pub const RESTRICTED_METHODS: &[&str] = &["IssueCertificate", "Transmit"];
+
+/// Environment variable that turns restricted methods into documented errors.
+pub const RESTRICT_ENV: &str = "SKF_RESTRICT_LEGACY";
+
+/// Error code returned for a restricted method when restrictions are enabled.
+pub const RESTRICTED_ERROR: i32 = -100;
+
+/// Whether `method` is in the restricted set.
+pub fn is_restricted(method: &str) -> bool {
+    RESTRICTED_METHODS.contains(&method)
+}
+
+/// Build the documented rejection for a restricted method, when enabled.
+///
+/// Pure so it can be unit-tested without touching the environment: `enabled` is
+/// the operator's decision, injected by the caller.
+pub fn restricted_rejection(
+    method: &str,
+    enabled: bool,
+    id: Option<serde_json::Value>,
+) -> Option<crate::protocol::RpcResponse> {
+    if !enabled || !is_restricted(method) {
+        return None;
+    }
+    Some(crate::protocol::RpcResponse::err(
+        RESTRICTED_ERROR,
+        format!(
+            "Method {} is restricted in this deployment; see RELEASE-NOTES.md",
+            method
+        ),
+        id,
+    ))
+}
+
 /// The class of `method`, or `None` when it is not classified.
 pub fn classify(method: &str) -> Option<OperationClass> {
     CLASSIFIED_METHODS
@@ -113,5 +152,26 @@ mod tests {
     #[test]
     fn an_unknown_method_returns_none() {
         assert_eq!(classify("NotAMethod"), None);
+    }
+
+    #[test]
+    fn the_restricted_set_is_documented_and_small() {
+        assert!(is_restricted("IssueCertificate"));
+        assert!(is_restricted("Transmit"));
+        assert!(!is_restricted("SignData"));
+        assert_eq!(RESTRICTED_METHODS.len(), 2);
+    }
+
+    #[test]
+    fn restricted_rejection_is_inert_unless_enabled() {
+        assert!(restricted_rejection("Transmit", false, None).is_none());
+        assert!(restricted_rejection("SignData", true, None).is_none());
+        let rejection = restricted_rejection("Transmit", true, None).expect("rejected");
+        assert_eq!(rejection.error, RESTRICTED_ERROR);
+        assert!(rejection
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("restricted"));
     }
 }

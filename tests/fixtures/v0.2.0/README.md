@@ -184,3 +184,16 @@ validation of a bogus handle is not something to rely on.
 - `tests/fixture_oracle.rs` — normalization plus the negative self-tests that
   prove the oracle can fail
 - `tests/contract_fixtures.rs` — end-to-end replay against a real server
+
+## Additive v0.3.0 methods and fields
+
+Two additions in v0.3.0 are **additive** and do not change any recorded v0.2.0
+response:
+
+- The request may carry an optional `"apiVersion": <integer>` field. A v0.2.0
+  client does not send it and is treated as version 1. A higher value is rejected
+  with `-1` and a documented message.
+- The `GetProtocolVersion` method returns `{"min":1,"current":1,"service":"0.3.0"}`.
+  It is listed in `tests/common/mod.rs::ADDITIVE_METHODS` and has **no** v0.2.0
+  fixture, because it did not exist when the fixtures were recorded. The
+  completeness test asserts that it does not acquire one by accident.
