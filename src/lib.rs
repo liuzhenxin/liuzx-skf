@@ -26,6 +26,7 @@ pub mod domain;
 pub mod protocol;
 pub mod provider;
 pub mod server;
+pub mod service_state;
 pub mod session;
 pub mod skf;
 
