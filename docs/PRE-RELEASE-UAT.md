@@ -93,9 +93,10 @@ Use `config\skf.yaml` pointed at a real GM3000, and a real PIN.
 - [ ] **B2 — device-removal invalidation.** A authorizes, then physically remove
       the token; A's next sensitive operation must fail with device-not-found and
       the grant must be cleared (re-inserting still requires `CheckPIN`). (SESS-04b)
-- [ ] **B3 — no PIN retained.** After `CheckPIN`, no code path re-reads a PIN; the
-      grant is a deadline only. (SESS-05; covered structurally by
-      `session::auth::tests::a_grant_holds_only_a_deadline`)
+- [x] **B3 — no PIN retained.** ✅ Automated: `Grant` holds only an `Instant`
+      (`session::auth::tests::a_grant_holds_only_a_deadline`, pinned to `Copy` and
+      a bounded size); `CheckPIN` stores a deadline and nothing else, and
+      `ctx.pins` is gone. Hardware-independent.
 - [ ] **B4 — concurrent serialization.** Two connections issue `SignData`
       concurrently; the process must not crash and both results must be correct
       (per-provider gate). (TRANS-05)
