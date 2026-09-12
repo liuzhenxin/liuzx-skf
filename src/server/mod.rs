@@ -258,36 +258,111 @@ pub async fn bind<F>(
 where
     F: ProviderFactory,
 {
-    let config = crate::config::load(&opts.config_path)?;
+    bind_with_progress(opts, factory, |_| {})
+        .await
+        .map_err(anyhow::Error::from)
+}
+
+/// A startup failure that maps to a distinct service exit code.
+///
+/// The Windows service reports `ServiceSpecific(exit_code())` so `sc failure`
+/// restart actions fire and an operator can tell which phase failed.
+#[derive(Debug)]
+pub enum StartupError {
+    /// Configuration could not be read or parsed.
+    Config(String),
+    /// The default provider has no usable path for this OS.
+    Provider(String),
+    /// The WebSocket listener could not be bound.
+    Bind(String),
+}
+
+impl StartupError {
+    /// The phase this failure belongs to.
+    pub fn stage(&self) -> crate::service_state::StartupStage {
+        use crate::service_state::StartupStage;
+        match self {
+            StartupError::Config(_) => StartupStage::Config,
+            StartupError::Provider(_) => StartupStage::Provider,
+            StartupError::Bind(_) => StartupStage::Bind,
+        }
+    }
+
+    /// The service-specific exit code for this failure.
+    pub fn exit_code(&self) -> u32 {
+        self.stage().exit_code()
+    }
+}
+
+impl std::fmt::Display for StartupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StartupError::Config(detail) => write!(f, "configuration error: {}", detail),
+            StartupError::Provider(detail) => write!(f, "provider resolution error: {}", detail),
+            StartupError::Bind(detail) => write!(f, "bind error: {}", detail),
+        }
+    }
+}
+
+impl std::error::Error for StartupError {}
+
+/// Like [`bind`], but reports each startup phase and classifies failures.
+///
+/// The Windows service uses this to report `StartPending` per phase and to fail
+/// with a distinct exit code. The classification boundary follows D-08/D-09:
+/// a **missing path for this OS** is fatal, but a **configured path whose library
+/// is missing or fails to load** is not — the factory returns
+/// `UnavailableProvider` and the service still starts (Linux CI depends on this).
+pub async fn bind_with_progress<F>(
+    opts: &ServerOptions,
+    factory: &F,
+    on_stage: impl Fn(crate::service_state::StartupStage),
+) -> Result<(BoundServer, TcpListener, PreparedServer), StartupError>
+where
+    F: ProviderFactory,
+{
+    use crate::service_state::StartupStage;
+
+    on_stage(StartupStage::Config);
+    let config =
+        crate::config::load(&opts.config_path).map_err(|e| StartupError::Config(e.to_string()))?;
+
+    on_stage(StartupStage::Provider);
+    // Fatal only when the default provider has no path for this OS. The file may
+    // still be missing; that degrades to `UnavailableProvider` (D-09).
+    crate::config::resolve_lib_path(&config.libs, &config.default, std::env::consts::OS)
+        .map_err(|e| StartupError::Provider(e.to_string()))?;
     let provider = factory.build(&config);
 
     let http_addr = match &opts.http_addr {
-        Some(addr) => Some(
-            addr.parse::<SocketAddr>()
-                .map_err(|e| anyhow::anyhow!("invalid HTTP address '{}': {}", addr, e))?,
-        ),
+        Some(addr) => Some(addr.parse::<SocketAddr>().map_err(|e| {
+            StartupError::Config(format!("invalid HTTP address '{}': {}", addr, e))
+        })?),
         None => None,
     };
 
+    on_stage(StartupStage::Bind);
     // Refuse a non-loopback WebSocket bind before the socket is opened unless the
-    // operator explicitly opted in. The address is resolved first, so `0.0.0.0`,
-    // a LAN address, and a hostname that resolves off-host are all caught
-    // (TRANS-06, D-17/D-19). The HTTP demo keeps its own defaults (D-18).
-    let ws_socket = resolve_bind_addr(&opts.ws_addr)?;
+    // operator explicitly opted in (TRANS-06). The HTTP demo keeps its defaults.
+    let ws_socket =
+        resolve_bind_addr(&opts.ws_addr).map_err(|e| StartupError::Bind(e.to_string()))?;
     if !ws_socket.ip().is_loopback() && !config.allows_remote() {
-        return Err(anyhow::anyhow!(
+        return Err(StartupError::Bind(format!(
             "refusing to bind WebSocket listener to non-loopback address {} without explicit opt-in; set allow_remote: true in the config or SKF_ALLOW_REMOTE=1",
             ws_socket
-        ));
+        )));
     }
 
     let listener = TcpListener::bind(ws_socket).await.map_err(|e| {
-        anyhow::anyhow!("failed to bind WebSocket listener on {}: {}", ws_socket, e)
+        StartupError::Bind(format!(
+            "failed to bind WebSocket listener on {}: {}",
+            ws_socket, e
+        ))
     })?;
     // The resolved address, not the requested one: with port 0 the OS chooses.
-    let bound_ws = listener
-        .local_addr()
-        .map_err(|e| anyhow::anyhow!("failed to read bound WebSocket address: {}", e))?;
+    let bound_ws = listener.local_addr().map_err(|e| {
+        StartupError::Bind(format!("failed to read bound WebSocket address: {}", e))
+    })?;
 
     Ok((
         BoundServer {
@@ -297,6 +372,25 @@ where
         listener,
         PreparedServer { config, provider },
     ))
+}
+
+/// Point the process at the executable's directory when the configured path is
+/// not present.
+///
+/// Services start with the working directory set to `%SystemRoot%\System32`.
+/// Falling back to the executable's directory keeps `config/`, `api/`, and
+/// relative `native/` paths from the YAML resolvable. Exposed so the Windows
+/// service can reuse it when it orchestrates `bind_with_progress` + `serve`
+/// itself rather than calling `run_server`.
+pub fn prepare_working_directory(config_path: &str) {
+    if !std::path::Path::new(config_path).exists() {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                log::info!("changing working directory to {}", dir.display());
+                let _ = std::env::set_current_dir(dir);
+            }
+        }
+    }
 }
 
 /// Resolve a `host:port` string to the first socket address it names.
@@ -409,17 +503,7 @@ pub async fn run_server<F>(
 where
     F: ProviderFactory,
 {
-    // Services start with the working directory set to %SystemRoot%\System32.
-    // Fall back to the executable's directory so `config/`, `api/`, and relative
-    // `native/` paths from the YAML still resolve.
-    if !std::path::Path::new(&opts.config_path).exists() {
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                log::info!("changing working directory to {}", dir.display());
-                let _ = std::env::set_current_dir(dir);
-            }
-        }
-    }
+    prepare_working_directory(&opts.config_path);
 
     let (bound, listener, prepared) = bind(&opts, &provider_factory).await?;
     if let Some(tx) = bound_tx {
@@ -487,4 +571,154 @@ fn spawn_client<S>(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestFactory;
+
+    impl ProviderFactory for TestFactory {
+        fn build(&self, config: &SkfConfig) -> Arc<dyn SkfProvider> {
+            Arc::new(UnavailableProvider::new(
+                config.default.clone(),
+                "test factory".to_string(),
+            ))
+        }
+    }
+
+    fn write_config(name: &str, body: &str) -> String {
+        let path = std::env::temp_dir().join(format!(
+            "skf-server-test-{}-{}.yaml",
+            std::process::id(),
+            name
+        ));
+        std::fs::write(&path, body).expect("write config");
+        path.to_string_lossy().into_owned()
+    }
+
+    /// A config that resolves for this OS (path may be nonexistent).
+    fn config_for_this_os() -> String {
+        let os = std::env::consts::OS;
+        format!(
+            "default: GM3000\nvendor: {{}}\nGM3000:\n  {}: native/missing-lib\n",
+            os
+        )
+    }
+
+    fn options(config_path: String, ws_addr: &str) -> ServerOptions {
+        ServerOptions {
+            config_path,
+            ws_addr: ws_addr.to_string(),
+            http_addr: None,
+            mode: RunMode::Console,
+        }
+    }
+
+    /// Extract a startup failure without requiring `PreparedServer: Debug`.
+    #[allow(clippy::type_complexity)]
+    fn startup_error(
+        result: Result<(BoundServer, TcpListener, PreparedServer), StartupError>,
+    ) -> StartupError {
+        match result {
+            Ok(_) => panic!("expected a startup failure"),
+            Err(error) => error,
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_with_progress_reports_config_provider_bind_in_order() {
+        use crate::service_state::StartupStage;
+        let opts = options(write_config("order", &config_for_this_os()), "127.0.0.1:0");
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+
+        let result = bind_with_progress(&opts, &TestFactory, move |stage| {
+            sink.lock().expect("mutex").push(stage);
+        })
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "expected bind to succeed: {:?}",
+            result.err()
+        );
+        let stages = seen.lock().expect("mutex").clone();
+        assert_eq!(
+            stages,
+            vec![
+                StartupStage::Config,
+                StartupStage::Provider,
+                StartupStage::Bind
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_os_path_is_a_provider_error() {
+        // A config that has a path for some OS other than this one.
+        let other = if std::env::consts::OS == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
+        let body = format!(
+            "default: GM3000\nvendor: {{}}\nGM3000:\n  {}: native/missing-lib\n",
+            other
+        );
+        let opts = options(write_config("no-os", &body), "127.0.0.1:0");
+
+        let error = startup_error(bind_with_progress(&opts, &TestFactory, |_| {}).await);
+        assert!(matches!(error, StartupError::Provider(_)), "{:?}", error);
+        assert_eq!(error.exit_code(), crate::service_state::EXIT_PROVIDER);
+    }
+
+    #[tokio::test]
+    async fn unparseable_config_is_a_config_error() {
+        let opts = options(
+            write_config("bad-yaml", "default: [unclosed\n"),
+            "127.0.0.1:0",
+        );
+
+        let error = startup_error(bind_with_progress(&opts, &TestFactory, |_| {}).await);
+        assert!(matches!(error, StartupError::Config(_)), "{:?}", error);
+        assert_eq!(error.exit_code(), crate::service_state::EXIT_CONFIG);
+    }
+
+    #[tokio::test]
+    async fn bind_failure_is_a_bind_error() {
+        // Hold a listener so the next bind to the same port fails.
+        let held = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("hold a port");
+        let port = held.local_addr().expect("addr").port();
+        let opts = options(
+            write_config("bind-fail", &config_for_this_os()),
+            &format!("127.0.0.1:{}", port),
+        );
+
+        let error = startup_error(bind_with_progress(&opts, &TestFactory, |_| {}).await);
+        assert!(matches!(error, StartupError::Bind(_)), "{:?}", error);
+        assert_eq!(error.exit_code(), crate::service_state::EXIT_BIND);
+    }
+
+    #[tokio::test]
+    async fn configured_but_missing_library_still_binds() {
+        // The path is configured but the file does not exist. This must NOT be a
+        // startup failure: the factory degrades to UnavailableProvider and the
+        // Linux CI relies on the service starting without the vendor library
+        // (D-09).
+        let opts = options(
+            write_config("missing-lib", &config_for_this_os()),
+            "127.0.0.1:0",
+        );
+
+        let result = bind_with_progress(&opts, &NativeProviderFactory, |_| {}).await;
+        assert!(
+            result.is_ok(),
+            "a missing library file must degrade, not fail startup: {:?}",
+            result.err()
+        );
+    }
 }
