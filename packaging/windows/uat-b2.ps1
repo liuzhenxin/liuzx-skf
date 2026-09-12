@@ -88,26 +88,39 @@ if ([int]$before.error -ne 0) { throw "baseline SignData failed: $(Brief $before
 Write-Host "authorized and signing works."
 
 Read-Host "PHYSICALLY REMOVE the token now (detach it from the VM if needed), then press Enter"
-Start-Sleep 3
-$enum = (Send-Rpc $ws "EnumDevice" @() 20).result
-$devState = Send-Rpc $ws "GetDevState" @($Provider, $device) 21
-Write-Host ("EnumDevice after removal -> {0}" -f (Brief $enum))
-Write-Host ("GetDevState('{0}') after removal -> {1}" -f $device, (Brief $devState))
-if ($enum -and @($enum).Count -gt 0) {
+Write-Host "Waiting for the service to stop seeing the device (up to 40s)..."
+$gone = $false
+$deadline = (Get-Date).AddSeconds(40)
+while ((Get-Date) -lt $deadline) {
+    $enum = (Send-Rpc $ws "EnumDevice" @() 20).result
+    $devState = Send-Rpc $ws "GetDevState" @($Provider, $device) 21
+    Write-Host ("  EnumDevice -> {0}   GetDevState -> {1}" -f (Brief $enum), (Brief $devState))
+    if (-not $enum -or @($enum).Count -eq 0) { $gone = $true; break }
+    Start-Sleep 2
+}
+if (-not $gone) {
     Write-Host ""
-    Write-Host "[WARN] B2 INCONCLUSIVE: the service still enumerates a device after removal."
+    Write-Host "[WARN] B2 INCONCLUSIVE: the service still enumerates a device after 40s."
     Write-Host "       The token is still attached to the VM. Detach the USB key from the VM"
     Write-Host "       (Parallels > Devices > USB & Bluetooth) or unplug it, then re-run."
     exit 2
 }
+Write-Host "device is no longer visible to the service."
 
 $removed = Send-Rpc $ws "SignData" @($certKey, $digest) 12
 Write-Host ("SignData while removed -> {0}" -f (Brief $removed))
 
 Read-Host "RE-INSERT the token now, then press Enter"
-Start-Sleep 3
-$enum2 = (Send-Rpc $ws "EnumDevice" @() 22).result
-if (-not $enum2) { Write-Host "re-inserted device not visible yet; waiting..."; Start-Sleep 4 }
+Write-Host "Waiting for the service to see the device again (up to 40s)..."
+$back = $false
+$deadline = (Get-Date).AddSeconds(40)
+while ((Get-Date) -lt $deadline) {
+    $enum2 = (Send-Rpc $ws "EnumDevice" @() 22).result
+    Write-Host ("  EnumDevice -> {0}" -f (Brief $enum2))
+    if ($enum2 -and @($enum2).Count -gt 0) { $back = $true; break }
+    Start-Sleep 2
+}
+if (-not $back) { Write-Host "[WARN] re-inserted device is still not visible; B2 is inconclusive."; exit 2 }
 $after = Send-Rpc $ws "SignData" @($certKey, $digest) 13
 Write-Host ("SignData after re-insert -> {0}" -f (Brief $after))
 
