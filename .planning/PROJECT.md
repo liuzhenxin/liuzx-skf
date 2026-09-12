@@ -43,10 +43,12 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - ✓ 同一 provider 库的原生调用由一把全局锁串行化，wait/cancel 显式豁免；全 crate 仍仅各一处 `unsafe impl Send/Sync` — Phase 3（`tests/ffi_serialization.rs`、`tests/provider_invariants.rs`）
 - ✓ 非回环 WebSocket 绑定在 `bind` 前被拒，除非 YAML `allow_remote` 或 `SKF_ALLOW_REMOTE` 显式 opt-in — Phase 3（`tests/loopback_gate.rs`）
 - ✓ 全部 37 个方法具有只读/破坏性分类与文档，且不接入请求路径 — Phase 3（`src/domain/classification.rs`、`docs/OPERATION-CLASSIFICATION.md`）
+- ✓ 全仓储 `cargo fmt --all -- --check` 通过（隔离的 formatting-only 提交），且未引入 `rustfmt.toml` — Phase 4（`04-01-SUMMARY.md`）
+- ✓ `cargo clippy --all-targets -- -D warnings` 零 warning；唯一保留的 allow 限于镜像 SKF C ABI 的两个函数且带注释；工具链由 `rust-toolchain.toml` 固定 1.93.0 — Phase 4（`src/skf/api.rs`、`rust-toolchain.toml`）
+- ✓ CI 在 PR 与 `main`/`dev` 推送时运行 fmt、clippy、硬件无关测试、x86_64 macOS 全量（含 37 夹具契约重放）与 i686 编译检查，并用 `gate-selftest` 证明门禁对失败测试敏感 — Phase 4（`.github/workflows/ci.yml`、`docs/CI.md`）
 
 ### Active
 
-- [ ] 核心协议和业务流程可以使用 Fake SKF 后端在无硬件 CI 中确定性测试
 - [ ] Windows SCM 仅在监听器就绪后报告 Running，启动失败返回非零状态并触发恢复策略
 - [ ] 操作员可以通过不泄露敏感信息的健康诊断了解配置、端口、provider 和驱动状态
 - [ ] Windows 服务日志有级别、关联信息、轮转和保留策略，不会无限增长
@@ -70,6 +72,8 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - Phase 3 后，每个请求的 dispatcher 整体运行在 Tokio 阻塞池上，厂商调用与守卫析构都不占用 async worker；所有经守卫的 native 调用共享一把每 provider 全局锁（wait/cancel 豁免），非 wait 请求有 30s 超时。当前 `cargo test` 运行 133 个 Rust 测试。
 - 当前网络 API没有传输认证；服务模式默认回环地址是重要的临时安全边界（Phase 3 已将非回环绑定改为显式 opt-in）。
 - Windows Release 工作流能构建并检查架构，但尚未自动验证服务安装、启动就绪、停止、升级或卸载。
+- `.github/workflows/ci.yml` 已是 PR/主分支门禁：fmt、clippy(-D warnings)、硬件无关测试、x86_64 macOS 全量（含契约重放）、i686 编译检查、门禁 self-test。真正阻断合并仍需仓库分支保护设置（见 `docs/CI.md`）。
+- `rust-toolchain.toml` 固定 Rust 1.93.0；本地与 CI 的 fmt/clippy 基线因此一致。
 - `IssueCertificate(double=true)` 的测试加密证书目前不保证与生成的加密私钥匹配，不应视为生产证书流程。
 
 ## Constraints
@@ -112,4 +116,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-11 after Phase 3 (Transport Hardening and Concurrency)*
+*Last updated: 2026-09-12 after Phase 4 (Format/Lint Normalization and CI Gate)*
