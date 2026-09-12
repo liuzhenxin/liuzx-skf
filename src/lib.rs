@@ -23,6 +23,7 @@
 pub mod config;
 pub mod crypto;
 pub mod domain;
+pub mod logging;
 pub mod protocol;
 pub mod provider;
 pub mod server;
