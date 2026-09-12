@@ -11,11 +11,11 @@ v0.3.0 将当前可运行但未加固的服务转变为可验证、可运维的�
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Structural Foundation and Test Seam** - 拆分为 library crate，固化 v0.2.0 契约夹具，建立 provider 抽象与可注入失败的 fake (completed 2026-09-11)
-- [ ] **Phase 2: Session Authorization and Resource Ownership** - 以会话隔离授权，用不透明标识替代原生句柄，确定性释放资源
-- [ ] **Phase 3: Transport Hardening and Concurrency** - 建立帧/载荷/连接/时长边界，阻塞 FFI 移出异步 worker，按设备串行化
-- [ ] **Phase 4: Format/Lint Normalization and CI Gate** - 归一化格式与 lint，启用会真正阻断合并的 CI 门禁
-- [ ] **Phase 5: Windows Service Reliability** - 准确的就绪状态与失败退出码，安装目录权限加固，完整生命周期验证
-- [ ] **Phase 6: Observability, Diagnostics, and Release Verification** - 结构化轮转日志、脱敏诊断、协议版本协商、发布完整性与威胁模型
+- [x] **Phase 2: Session Authorization and Resource Ownership** - 以会话隔离授权，用不透明标识替代原生句柄，确定性释放资源 (completed 2026-09-11)
+- [x] **Phase 3: Transport Hardening and Concurrency** - 建立帧/载荷/连接/时长边界，阻塞 FFI 移出异步 worker，按设备串行化 (completed 2026-09-11)
+- [x] **Phase 4: Format/Lint Normalization and CI Gate** - 归一化格式与 lint，启用会真正阻断合并的 CI 门禁 (completed 2026-09-12)
+- [x] **Phase 5: Windows Service Reliability** - 准确的就绪状态与失败退出码，安装目录权限加固，完整生命周期验证 (completed 2026-09-12)
+- [x] **Phase 6: Observability, Diagnostics, and Release Verification** - 结构化轮转日志、脱敏诊断、协议版本协商、发布完整性与威胁模型 (completed 2026-09-12)
 
 ## Phase Details
 
@@ -68,8 +68,8 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [x] 03-01: TBD
-- [x] 03-02: TBD
+- [x] 03-01: Bounded frames, payloads, and connections
+- [x] 03-02: Blocking FFI isolation, per-provider serialization, and timeout
 
 ### Phase 4: Format/Lint Normalization and CI Gate
 **Goal**: 建立真实生效的合并门禁：格式与 lint 基线干净，CI 运行硬件无关测试并在失败时阻断合并。
@@ -83,8 +83,8 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [x] 04-01: TBD
-- [x] 04-02: TBD
+- [x] 04-01: Repository-wide formatting baseline
+- [x] 04-02: Clean clippy baseline and toolchain pin
 
 ### Phase 5: Windows Service Reliability
 **Goal**: 让 Windows 服务如实反映自身可用性，并让安装、升级、卸载在权限与清理上可靠。
@@ -99,8 +99,8 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [x] 05-01: TBD
-- [x] 05-02: TBD
+- [x] 05-01: Honest startup reporting, distinct exit codes, stage-aware status
+- [x] 05-02: Install-directory permissions and reliable upgrade/uninstall
 
 ### Phase 6: Observability, Diagnostics, and Release Verification
 **Goal**: 让运维人员能够诊断问题而不泄露敏感信息，并让发布产物可被独立校验。
@@ -115,9 +115,9 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [x] 06-01: TBD
-- [x] 06-02: TBD
-- [x] 06-03: TBD
+- [x] 06-01: Structured rotating logs and redaction
+- [x] 06-02: Local diagnostics, protocol version, and restricted methods
+- [x] 06-03: Release integrity and documentation
 
 ## Progress
 
@@ -128,9 +128,9 @@ Phase 5 is file-disjoint from Phases 2-4 and may be executed in parallel if sche
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Structural Foundation and Test Seam | 4/4 | Complete    | 2026-09-11 |
-| 2. Session Authorization and Resource Ownership | 3/4 | In Progress|  |
-| 3. Transport Hardening and Concurrency | 0/2 | Not started | - |
-| 4. Format/Lint Normalization and CI Gate | 0/2 | Not started | - |
-| 5. Windows Service Reliability | 0/2 | Not started | - |
-| 6. Observability, Diagnostics, and Release Verification | 0/3 | Not started | - |
+| 1. Structural Foundation and Test Seam | 4/4 | Complete | 2026-09-11 |
+| 2. Session Authorization and Resource Ownership | 4/4 | Complete | 2026-09-11 |
+| 3. Transport Hardening and Concurrency | 4/4 | Complete | 2026-09-11 |
+| 4. Format/Lint Normalization and CI Gate | 3/3 | Complete | 2026-09-12 |
+| 5. Windows Service Reliability | 2/2 | Complete | 2026-09-12 |
+| 6. Observability, Diagnostics, and Release Verification | 3/3 | Complete | 2026-09-12 |
