@@ -266,6 +266,11 @@ impl SkfApi {
         Self { lib: Arc::new(lib) }
     }
 
+    /// # Safety
+    ///
+    /// `T` must be the exact `unsafe extern "system" fn` type the symbol is
+    /// declared with in the vendor ABI. Calling the returned pointer with any
+    /// other signature is undefined behaviour; the caller chooses the type.
     pub unsafe fn get_func<T>(&self, name: &[u8]) -> Result<Symbol<'_, T>, libloading::Error> {
         self.lib.get(name)
     }
@@ -615,6 +620,9 @@ impl SkfApi {
         }
     }
 
+    // Mirrors the SKF_EncryptData C ABI signature one-to-one; grouping the
+    // arguments would break that correspondence with the vendor API.
+    #[allow(clippy::too_many_arguments)]
     pub fn encrypt_data(
         &self,
         container_handle: HCONTAINER,
@@ -641,6 +649,9 @@ impl SkfApi {
         }
     }
 
+    // Mirrors the SKF_DecryptData C ABI signature one-to-one; grouping the
+    // arguments would break that correspondence with the vendor API.
+    #[allow(clippy::too_many_arguments)]
     pub fn decrypt_data(
         &self,
         container_handle: HCONTAINER,

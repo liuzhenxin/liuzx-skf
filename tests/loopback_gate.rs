@@ -50,14 +50,18 @@ fn options(config_path: String, ws_addr: &str) -> ServerOptions {
 }
 
 /// Environment state is process-global; serialise the tests that touch it.
-fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+///
+/// An async mutex, not a blocking one: these tests hold the guard across
+/// `bind(...).await`, and holding a blocking guard across an await point is the
+/// hazard `clippy::await_holding_lock` exists to catch.
+fn env_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    &LOCK
 }
 
 #[tokio::test]
 async fn non_loopback_is_refused_without_opt_in() {
-    let _guard = env_lock();
+    let _guard = env_lock().lock().await;
     std::env::remove_var(SkfConfig::REMOTE_ENV);
     let opts = options(write_config(""), "0.0.0.0:0");
 
@@ -73,7 +77,7 @@ async fn non_loopback_is_refused_without_opt_in() {
 
 #[tokio::test]
 async fn loopback_is_allowed_without_opt_in() {
-    let _guard = env_lock();
+    let _guard = env_lock().lock().await;
     std::env::remove_var(SkfConfig::REMOTE_ENV);
     let opts = options(write_config(""), "127.0.0.1:0");
 
@@ -89,7 +93,7 @@ async fn loopback_is_allowed_without_opt_in() {
 
 #[tokio::test]
 async fn non_loopback_is_allowed_with_env_opt_in() {
-    let _guard = env_lock();
+    let _guard = env_lock().lock().await;
     std::env::set_var(SkfConfig::REMOTE_ENV, "1");
     let opts = options(write_config(""), "0.0.0.0:0");
 
@@ -101,7 +105,7 @@ async fn non_loopback_is_allowed_with_env_opt_in() {
 
 #[tokio::test]
 async fn non_loopback_is_allowed_with_yaml_opt_in() {
-    let _guard = env_lock();
+    let _guard = env_lock().lock().await;
     std::env::remove_var(SkfConfig::REMOTE_ENV);
     let opts = options(write_config("allow_remote: true\n"), "0.0.0.0:0");
 
