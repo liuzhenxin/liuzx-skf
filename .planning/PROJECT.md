@@ -10,29 +10,21 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 
 应用能够通过稳定、安全且与厂商实现解耦的统一接口访问 USB Key 的硬件密码能力。
 
-## Current State: v0.3.0 Production Hardening — SHIPPED 2026-09-12
+## Current Milestone: v0.4.0 Secure Remote Operation
 
-**6/6 phases, 20/20 plans, 44/44 requirements satisfied.** `cargo test` runs 164
-tests; the 37 frozen v0.2.0 fixtures still replay against the real binary; fmt and
-clippy(-D warnings) are clean; the i686 Windows cross-check passes. The milestone
-is archived under `.planning/milestones/v0.3.0-*` and summarised in
-`.planning/MILESTONES.md`; the audit (`.planning/milestones/v0.3.0-MILESTONE-AUDIT.md`)
-reported `tech_debt` with no unsatisfied requirement.
-
-**Carry-over to the next milestone** (from the audit): Windows/CI runtime
-verification (`05-HUMAN-UAT.md`, `06-HUMAN-UAT.md`), the Linux CI fast-job test
-list refresh, and optional Nyquist sign-off for phases 3-6.
-
-## Milestone Goal: v0.3.0 Production Hardening
-
-**Goal:** 在保持 v0.2.0 GM3000 接口和部署兼容性的同时，建立安全会话、受控句柄、可测试架构以及可观测、可恢复的 Windows 服务运行基础。
+**Goal:** 让服务在非回环网络上有真实的传输安全与访问控制，移除"回环才是安全边界"这一根本限制。
 
 **Target features:**
-- 将 PIN 授权和原生资源限定在客户端会话内，避免跨连接复用明文 PIN 或客户端直接控制原生指针。
-- 拆分单体请求分发器，建立可替换 SKF provider 接口和无硬件测试后端，为 Rust 单元/协议测试与 CI 提供基础。
-- 完善 Windows 服务的启动状态、健康诊断、失败退出、日志轮转和安装包冒烟验证。
-- 为请求大小、并发、超时、危险操作及本地访问边界建立明确、可测试的安全策略。
-- 增强 Release 完整性信息，同时保留真实 GM3000 硬件 UAT 作为独立验证层。
+- TLS 终止：为 WebSocket 监听器提供 TLS（服务端证书，配置化；证书/私钥按敏感资料处理，不写入日志或发布元数据）。
+- 客户端认证：mTLS 或 bearer 令牌（配置化），未认证连接不能调用方法。
+- 绑定策略收紧：非回环地址仅在 TLS 与客户端认证**同时**启用时放行（把现有 `allow_remote` 升级为"安全才可远程"）。
+- 授权决策审计：记录非敏感的允许/拒绝事实（主体类别、provider/device、结果、原因类别），不记录 PIN/密钥/载荷。
+- 兼容性与文档：v0.2.0 本机客户端行为不变；更新威胁模型、会话/限制文档与迁移说明。
+- 顺带收尾：阶段 3–6 的 Nyquist 签核、CI fast-job 测试清单同步。
+
+**Prior milestone:** v0.3.0 / v0.3.1 Production Hardening shipped and verified; see `.planning/MILESTONES.md`.
+
+**Explicitly deferred to a later milestone:** per-device concurrency/throughput, multi-vendor (FishMan/3000GM) and Linux/macOS distribution, remote log shipping / metrics / health endpoint, and real CA integration for `IssueCertificate`.
 
 ## Requirements
 

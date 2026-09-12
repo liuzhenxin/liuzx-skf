@@ -1,106 +1,74 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.3.0
-milestone_name: milestone
-current_phase_name: (none - v0.3.0 shipped)
-status: milestone_complete
-stopped_at: "Milestone v0.3.0 Production Hardening shipped (6/6 phases, 20/20 plans, 44/44 requirements). Awaiting next milestone."
-last_updated: "2026-09-12T11:26:23.662Z"
+milestone: v0.4.0
+milestone_name: Secure Remote Operation
+current_phase_name: (defining requirements)
+status: defining_requirements
+stopped_at: "Milestone v0.4.0 Secure Remote Operation started; defining requirements and roadmap."
+last_updated: "2026-09-12T14:46:04Z"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 20
-  completed_plans: 20
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-11)
+See: .planning/PROJECT.md (updated 2026-09-12)
 
 **Core value:** 应用能够通过稳定、安全且与厂商实现解耦的统一接口访问 USB Key 的硬件密码能力。
-**Current Phase Name:** observability, diagnostics, and release verification
+**Current Milestone:** v0.4.0 Secure Remote Operation — TLS, client authentication, tightened bind policy, authorization audit.
 
 ## Current Position
 
-Milestone: v0.3.0 Production Hardening — SHIPPED 2026-09-12
-Next action: define the next milestone with `$gsd-new-milestone`
-Last Activity Description: v0.3.0 milestone archived and tagged
+Milestone: v0.4.0 Secure Remote Operation — DEFINING REQUIREMENTS
+Next action: finalize REQUIREMENTS.md and ROADMAP.md, then `$gsd-discuss-phase 7`
+Last Activity Description: v0.4.0 milestone started (phase numbering continues at 7)
 
-Progress: [██░░░░░░░░] 17%  (1/6 phases, 4/4 plans in Phase 1)
-
-## Performance Metrics
-
-**Velocity:**
-
-- Total plans completed: 20 (Phase 1)
-- Average duration: —
-- Total execution time: 0.0 hours
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1 | 4 | - | - |
-| 02 | 4 | - | - |
-| 03 | 4 | - | - |
-| 04 | 3 | - | - |
-| 05 | 2 | - | - |
-| 06 | 3 | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: —
-- Trend: —
-
-*Updated after each plan completion*
-| Phase 1 P01 | 42 min | 3 tasks | 40 files |
-| Phase 1 P02 | 55 min | 3 tasks | 45 files |
-| Phase 1 P03 | 70 min | 4 tasks | 8 files |
-| Phase 2 P02 | 75 min | 3 tasks | 5 files |
-| Phase 2 P03 | 90 min | 4 tasks | 5 files |
-| Phase 02 P04 | 180 min | 4 tasks | 15 files |
+Progress: [░░░░░░░░░░] 0%  (0/0 phases)
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
+Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecting current work:
 
-- Milestone v0.3.0 scoped as production hardening, not new SKF feature work.
-- Testability precedes refactoring: provider seam and frozen v0.2.0 protocol fixtures land before security changes.
-- Loopback-only default retained; no TLS or remote exposure in this milestone.
-- `IssueCertificate` stays explicitly mock-only.
-- [Phase 1]: Fixture normalization must be verified across process restarts, not within one process — HashMap iteration order is stable within a process, so EnumProvider's order instability was invisible to a same-process determinism check
-- [Phase 1]: Provider guards store handles as usize instead of raw pointers — A raw pointer is !Send + !Sync, and the crate allows exactly one unsafe impl Send/Sync; integers keep guards thread-safe with no new unsafe block
-- [Phase 2]: Per-operation PIN re-verification removed by design; the session grant is the authorization — The PIN is not retained (SESS-05), so re-verification is impossible; the TTL-bounded grant replaces it
-- [Phase 2]: A client-supplied integer is never converted to a native handle — That conversion reached the vendor library unchecked and killed the service process; the DisConnectDev fixture change is documented as an intentional contract change
+- Milestone v0.4.0 is the security-exposure milestone: TLS + client authentication + tightened bind policy + authorization audit.
+- v0.3.0/v0.3.1 shipped and verified: session-scoped authorization, opaque handles, bounded transport, FFI serialization, CI gate + branch protection, honest Windows service, structured logs/diagnostics, checksummed releases.
+- [v0.3.1] A `ConnectDev` failure (token removed) must clear the device's grants — found by real-hardware UAT B2, fixed in v0.3.1.
+- [v0.3.0] The 37 v0.2.0 fixtures stay frozen; `WaitForDevEvent` and the OpenSSL-dependent `IssueCertificate` mock are shape-checked, `normalize` untouched.
+- [Phase 2] Per-operation PIN re-verification removed by design; the TTL-bounded grant is the authorization, and no PIN copy is retained.
+- [Phase 3] Blocking FFI runs on the blocking pool behind one per-provider lock; `WaitForDevEvent`/`CancelWaitForDevEvent` are exempt.
+- [Phase 4] rustfmt/clippy clean, toolchain pinned 1.93.0, CI requires the five protected checks.
 
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
-- Phase 3 needs concrete limit values derived from real certificate/key payload sizes rather than assumptions.
-- Phase 5 requires verifying that any reduced-privilege service account still satisfies GM3000 driver access requirements.
-- Phase 6 is the largest phase and may need splitting; threat model and version negotiation are the first deferral candidates.
-- Fabricated DEVHANDLE kills the service process (SKF_GenRandom with handle 1 crashes inside the GM3000 DLL). Motivates RES-01 in Phase 2.
-- launchd agent com.liuzx.skf-service remains unloaded for Phase 1; reload it after the phase completes.
+- TLS/client-auth crate availability: the local cargo registry needed a sparse mirror; `~/.cargo/config.toml` was switched to `sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/` (backup at `~/.cargo/config.toml.bak`). CI fetches from crates.io normally.
+- Vendor DLL thread safety remains unproven; per-device concurrency stays deferred.
+- The HTTP demo can still bind non-loopback in console mode (documented boundary).
+- `IssueCertificate` remains a Mock (real CA integration deferred).
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Carried into the v0.4.0 backlog (not in this milestone): per-device concurrency/throughput, multi-vendor (FishMan/3000GM) and Linux/macOS distribution, remote log shipping/metrics/health endpoint, real CA integration.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| concurrency | per-device locking / multi-device throughput | deferred | v0.4.0 start |
+| distribution | FishMan / 3000GM / Linux / macOS packaging | deferred | v0.4.0 start |
+| observability | remote log shipping, metrics, health endpoint | deferred | v0.4.0 start |
+| ca | real certificate issuance (IssueCertificate) | deferred | v0.4.0 start |
 
 ## Session Continuity
 
-Last session: 2026-09-12T11:21:18.565Z
-Stopped at: Completed 06-03: phase 6 complete (3/3). v0.3.0 milestone scope complete; run audit/complete-milestone next.
+Last session: 2026-09-12T14:46:04Z
+Stopped at: Started milestone v0.4.0 (defining requirements)
 Resume file: None
