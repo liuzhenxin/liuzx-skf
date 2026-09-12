@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Secure Remote Operation
-current_phase_name: (defining requirements)
-status: defining_requirements
-stopped_at: "Milestone v0.4.0 Secure Remote Operation started; defining requirements and roadmap."
+current_phase_name: TLS Termination
+status: ready_to_execute
+stopped_at: "Milestone v0.4.0 requirements and roadmap defined; ready to execute phase 7 (TLS Termination)."
 last_updated: "2026-09-12T14:46:04Z"
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
