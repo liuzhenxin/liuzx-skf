@@ -127,18 +127,19 @@ Use `config\skf.yaml` pointed at a real GM3000, and a real PIN.
 
 ## D. Contract and CI
 
-- [ ] **D1 — contract replay on a middleware machine.** On a host with the GM3000
-      macOS middleware installed: `cargo test --test contract_fixtures` → 37/37.
-      (Hosted runners cannot do this; see `docs/CI.md`.)
+- [x] **D1 — contract replay on a middleware machine.** ✅ 2026-09-12: the macOS
+      development host (GM3000 middleware installed) replays
+      `cargo test --test contract_fixtures` at 37/37 on every run. (Hosted runners
+      cannot do this; see `docs/CI.md`.)
 - [x] **D2 — hosted CI green.** `dev` CI run succeeded: Formatting, Clippy,
       Hardware-free tests (Linux), Windows i686 compile check, Gate self-test.
       (2026-09-12, run 34691883761)
 - [x] **D3 — branch protection applied.** `main` requires the five CI checks
       (strict). Verified via `gh api .../branches/main/protection`.
-- [ ] **D4 — protected gate blocks a red PR.** Open a throwaway PR that fails a
-      check and confirm merge is blocked. (The `gate-selftest` job proves the
-      check command fails on a failing test; this step exercises the protection
-      rule itself.)
+- [x] **D4 — protected gate blocks a red PR.** ✅ 2026-09-12: throwaway PR #2
+      (deliberately failing test) reached `mergeStateStatus: BLOCKED`, and
+      `gh pr merge 2` was refused with "the base branch policy prohibits the
+      merge". PR closed and branch deleted without merging.
 
 ---
 
@@ -149,7 +150,7 @@ Use `config\skf.yaml` pointed at a real GM3000, and a real PIN.
 | A. Windows lifecycle | operator (Win10 x64 VM) | 2026-09-12 | **PASS** — A1–A7 + A2 observed; `uat-v030.ps1` reported `Total: 4 Failed: 0` |
 | B. Real GM3000 | | | **PENDING** — needs the token + driver in the VM |
 | C. Release pipeline | CI + operator | 2026-09-12 | C1/C2/C3 **PASS** |
-| D. Contract / CI | CI | 2026-09-12 | D2/D3 **PASS**; D1 pending (middleware host); D4 pending (red PR) |
+| D. Contract / CI | CI + dev host | 2026-09-12 | **PASS** — D1 (37/37 locally), D2 (hosted CI green), D3 (protection applied), D4 (red PR blocked) |
 
 ### Verified on the Windows VM (2026-09-12)
 
