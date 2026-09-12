@@ -227,7 +227,11 @@ pub fn status() -> Result<()> {
 /// `service_dispatcher::start` blocks until the service stops.
 pub fn run() -> Result<()> {
     redirect_stdio_to_log();
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Structured, rotating logs under <exe dir>/logs. A failure here must not stop
+    // the service; the console log still catches panics and println!.
+    if let Err(e) = crate::logging::init_service_file(&exe_dir()) {
+        eprintln!("[skf-service] structured logging unavailable: {e}");
+    }
 
     match service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         Ok(()) => Ok(()),
@@ -438,12 +442,18 @@ fn short_reason(message: &str) -> String {
         .collect()
 }
 
-fn log_file_path() -> PathBuf {
+/// Directory containing the executable (the service's working root).
+fn exe_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("skf-service.log")
+}
+
+/// Where stdout/stderr are redirected. Separate from the structured
+/// `logs/skf-service.log` so the two writers never interleave.
+fn console_log_path() -> PathBuf {
+    exe_dir().join("skf-service.console.log")
 }
 
 /// Point stdout/stderr at an append-only log file next to the executable.
@@ -453,7 +463,7 @@ fn redirect_stdio_to_log() {
     if let Ok(file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_file_path())
+        .open(console_log_path())
     {
         let raw = file.as_raw_handle();
         unsafe {
@@ -463,7 +473,7 @@ fn redirect_stdio_to_log() {
         std::mem::forget(file);
         println!(
             "[skf-service] stdout/stderr redirected to {}",
-            log_file_path().display()
+            console_log_path().display()
         );
     }
 }

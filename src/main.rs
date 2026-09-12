@@ -150,7 +150,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    env_logger::init();
+    skf_service::logging::init_console();
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow::anyhow!("failed to create Tokio runtime: {}", e))?;
