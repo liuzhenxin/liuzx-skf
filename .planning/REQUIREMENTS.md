@@ -60,8 +60,8 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 ### Observability and Diagnostics (OBS)
 
-- [ ] **OBS-01**: Service logs are structured, leveled, and written to a rotating file with bounded retention
-- [ ] **OBS-02**: No log output contains PIN values, private keys, session keys, or decrypted payloads
+- [x] **OBS-01**: Service logs are structured, leveled, and written to a rotating file with bounded retention
+- [x] **OBS-02**: No log output contains PIN values, private keys, session keys, or decrypted payloads
 - [ ] **OBS-03**: Operator can run a local diagnostic reporting whether config loaded, provider resolved, library file present, library loaded, and listener bound
 - [ ] **OBS-04**: The diagnostic reports only non-sensitive, non-identifying facts (stage booleans, provider alias, ports, uptime, error class)
 
@@ -163,8 +163,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SVC-03 | Phase 5 | Complete |
 | SVC-04 | Phase 5 | Complete |
 | SVC-05 | Phase 5 | Complete |
-| OBS-01 | Phase 6 | Pending |
-| OBS-02 | Phase 6 | Pending |
+| OBS-01 | Phase 6 | Complete |
+| OBS-02 | Phase 6 | Complete |
 | OBS-03 | Phase 6 | Pending |
 | OBS-04 | Phase 6 | Pending |
 | REL-01 | Phase 6 | Pending |
