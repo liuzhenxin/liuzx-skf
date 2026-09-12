@@ -10,7 +10,20 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 
 应用能够通过稳定、安全且与厂商实现解耦的统一接口访问 USB Key 的硬件密码能力。
 
-## Current Milestone: v0.3.0 Production Hardening (Phase 1 of 6 complete)
+## Current State: v0.3.0 Production Hardening — SHIPPED 2026-09-12
+
+**6/6 phases, 20/20 plans, 44/44 requirements satisfied.** `cargo test` runs 164
+tests; the 37 frozen v0.2.0 fixtures still replay against the real binary; fmt and
+clippy(-D warnings) are clean; the i686 Windows cross-check passes. The milestone
+is archived under `.planning/milestones/v0.3.0-*` and summarised in
+`.planning/MILESTONES.md`; the audit (`.planning/milestones/v0.3.0-MILESTONE-AUDIT.md`)
+reported `tech_debt` with no unsatisfied requirement.
+
+**Carry-over to the next milestone** (from the audit): Windows/CI runtime
+verification (`05-HUMAN-UAT.md`, `06-HUMAN-UAT.md`), the Linux CI fast-job test
+list refresh, and optional Nyquist sign-off for phases 3-6.
+
+## Milestone Goal: v0.3.0 Production Hardening
 
 **Goal:** 在保持 v0.2.0 GM3000 接口和部署兼容性的同时，建立安全会话、受控句柄、可测试架构以及可观测、可恢复的 Windows 服务运行基础。
 
