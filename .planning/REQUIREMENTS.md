@@ -69,15 +69,15 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 - [x] **REL-01**: The protocol accepts a version indicator and existing v0.2.0 clients continue to work unmodified
 - [x] **REL-02**: Methods restricted for safety remain present and return a documented error instead of disappearing
-- [ ] **REL-03**: The Windows release ZIP ships with a SHA-256 checksum file
-- [ ] **REL-04**: The release workflow verifies extracted package contents and that both the executable and the GM3000 DLL are PE32/i386 (`Machine=0x014C`)
-- [ ] **REL-05**: Release notes document every intentional behavior change and its migration path
+- [x] **REL-03**: The Windows release ZIP ships with a SHA-256 checksum file
+- [x] **REL-04**: The release workflow verifies extracted package contents and that both the executable and the GM3000 DLL are PE32/i386 (`Machine=0x014C`)
+- [x] **REL-05**: Release notes document every intentional behavior change and its migration path
 
 ### Documentation (DOC)
 
-- [ ] **DOC-01**: A threat model documents the trust boundary, the local-only exposure decision, the credential-retention decision, and known limitations
-- [ ] **DOC-02**: Chinese and English documentation describe the session/authorization model, limits, and restricted methods
-- [ ] **DOC-03**: Agent-facing project documentation reflects the post-refactor module layout and current commands
+- [x] **DOC-01**: A threat model documents the trust boundary, the local-only exposure decision, the credential-retention decision, and known limitations
+- [x] **DOC-02**: Chinese and English documentation describe the session/authorization model, limits, and restricted methods
+- [x] **DOC-03**: Agent-facing project documentation reflects the post-refactor module layout and current commands
 
 ## v2 Requirements
 
@@ -169,12 +169,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 | OBS-04 | Phase 6 | Complete |
 | REL-01 | Phase 6 | Complete |
 | REL-02 | Phase 6 | Complete |
-| REL-03 | Phase 6 | Pending |
-| REL-04 | Phase 6 | Pending |
-| REL-05 | Phase 6 | Pending |
-| DOC-01 | Phase 6 | Pending |
-| DOC-02 | Phase 6 | Pending |
-| DOC-03 | Phase 6 | Pending |
+| REL-03 | Phase 6 | Complete |
+| REL-04 | Phase 6 | Complete |
+| REL-05 | Phase 6 | Complete |
+| DOC-01 | Phase 6 | Complete |
+| DOC-02 | Phase 6 | Complete |
+| DOC-03 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 45 total
