@@ -230,7 +230,7 @@ mod tests {
         let p = params(vec![json!("x")]);
         assert_eq!(p.optional_str(5, "default"), "default");
         assert_eq!(p.optional_u64(0, 7), 7, "a string is not a u64");
-        assert_eq!(p.optional_bool(0, true), true);
+        assert!(p.optional_bool(0, true));
         assert_eq!(p.len(), 1);
         assert!(!p.is_empty());
     }

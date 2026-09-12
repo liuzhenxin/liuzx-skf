@@ -426,8 +426,7 @@ fn decode_certificate(cert_str: &str) -> Result<Vec<u8>, base64::DecodeError> {
         let b64 = cert_str
             .replace("-----BEGIN CERTIFICATE-----", "")
             .replace("-----END CERTIFICATE-----", "")
-            .replace('\n', "")
-            .replace('\r', "");
+            .replace(['\n', '\r'], "");
         match base64::engine::general_purpose::STANDARD.decode(b64) {
             Ok(b) => Ok(b),
             Err(_) => Ok(cert_str.as_bytes().to_vec()),

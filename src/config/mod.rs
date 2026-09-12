@@ -185,7 +185,7 @@ pub fn validate(config: &SkfConfig, os: &str) -> Vec<String> {
         }
     }
 
-    for (alias, _platforms) in &config.libs {
+    for alias in config.libs.keys() {
         if alias == &config.default {
             continue;
         }

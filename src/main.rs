@@ -418,7 +418,7 @@ fn handle_request(
 
     match req.method.as_str() {
         "SetLanguage" => {
-            if let Some(l) = req.params.get(0).and_then(|v| v.as_str()) {
+            if let Some(l) = req.params.first().and_then(|v| v.as_str()) {
                 *lang = match l.to_uppercase().as_str() {
                     "CN" | "ZH" => Language::CN,
                     _ => Language::EN,
@@ -431,7 +431,7 @@ fn handle_request(
         "WaitForDevEvent" => {
             let provider = req
                 .params
-                .get(0)
+                .first()
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
 
@@ -489,7 +489,7 @@ fn handle_request(
             }
         }
         "EnumProvider" => {
-            let vpid_opt = req.params.get(0).and_then(|v| v.as_str());
+            let vpid_opt = req.params.first().and_then(|v| v.as_str());
 
             match vpid_opt {
                 Some(vpid) if !vpid.is_empty() => {
@@ -517,7 +517,7 @@ fn handle_request(
         "EnumDevice" => {
             let provider = req
                 .params
-                .get(0)
+                .first()
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
 
@@ -580,7 +580,7 @@ fn handle_request(
             }
         }
         "ConnectDev" => {
-            let name = match req.params.get(0).and_then(|v| v.as_str()) {
+            let name = match req.params.first().and_then(|v| v.as_str()) {
                 Some(name) => name,
                 None => return RpcResponse::err(-2, "Missing param".into(), id),
             };
@@ -606,7 +606,7 @@ fn handle_request(
         "EnumApplication" => {
             let provider = req
                 .params
-                .get(0)
+                .first()
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
             let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
@@ -668,7 +668,7 @@ fn handle_request(
             // Params: [providerName, deviceName, appName]
             let provider = req
                 .params
-                .get(0)
+                .first()
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
             let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
@@ -749,13 +749,11 @@ fn handle_request(
         }
         "DeleteContainer" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::DeleteContainer::handle(
-                ctx, state, &params, lang,
-            );
+            skf_service::domain::container::DeleteContainer::handle(ctx, state, &params, lang)
         }
         "IssueCertificate" => {
             // Params: [csr_base64_or_pem, double?]
-            let csr_str = match req.params.get(0).and_then(|v| v.as_str()) {
+            let csr_str = match req.params.first().and_then(|v| v.as_str()) {
                 Some(c) => c,
                 None => return RpcResponse::err(-2, "Missing CSR param".into(), id),
             };
@@ -805,7 +803,7 @@ fn handle_request(
 
             // Extract subject using OpenSSL
             let subj_output = std::process::Command::new("openssl")
-                .args(&["req", "-in", &csr_path, "-noout", "-subject"])
+                .args(["req", "-in", &csr_path, "-noout", "-subject"])
                 .output();
             if let Ok(out) = subj_output {
                 let s = String::from_utf8_lossy(&out.stdout).to_string();
@@ -844,7 +842,7 @@ fn handle_request(
             // Check if mock CA exists, else generate
             if !std::path::Path::new(&ca_key_path).exists() {
                 let _ = std::process::Command::new("openssl")
-                    .args(&[
+                    .args([
                         "req",
                         "-x509",
                         "-newkey",
@@ -865,7 +863,7 @@ fn handle_request(
             // Extract public key from CSR (SM2 CSRs require distid for signature verification)
             let pub_key_path = temp_file_path(&format!("pub_{}.pem", req_id));
             let _ = std::process::Command::new("openssl")
-                .args(&[
+                .args([
                     "req",
                     "-in",
                     &csr_path,
@@ -882,7 +880,7 @@ fn handle_request(
             let dummy_csr_path = temp_file_path(&format!("dummy_{}.csr", req_id));
             let dummy_key_path = temp_file_path(&format!("dummy_{}.key", req_id));
             let _ = std::process::Command::new("openssl")
-                .args(&[
+                .args([
                     "req",
                     "-new",
                     "-newkey",
@@ -899,7 +897,7 @@ fn handle_request(
 
             // Issue sign certificate
             let output = std::process::Command::new("openssl")
-                .args(&[
+                .args([
                     "x509",
                     "-req",
                     "-in",
@@ -1009,7 +1007,7 @@ fn handle_request(
                 let _ = std::fs::write(&enc_key_der_path, &point);
                 // Use openssl to convert raw point to PEM public key - use EC param file
                 let _ = std::process::Command::new("openssl")
-                    .args(&[
+                    .args([
                         "ecparam",
                         "-name",
                         "SM2",
@@ -1020,7 +1018,7 @@ fn handle_request(
                     ])
                     .output();
                 let _ = std::process::Command::new("openssl")
-                    .args(&[
+                    .args([
                         "ec",
                         "-in",
                         &tmp_key_path,
@@ -1036,7 +1034,7 @@ fn handle_request(
             let dummy2_csr_path = temp_file_path(&format!("dummy2_{}.csr", req_id));
             let dummy2_key_path = temp_file_path(&format!("dummy2_{}.key", req_id));
             let _ = std::process::Command::new("openssl")
-                .args(&[
+                .args([
                     "req",
                     "-new",
                     "-newkey",
@@ -1053,7 +1051,7 @@ fn handle_request(
             // For the enc cert, just use the sign cert PEM as we can't easily inject the smcrypto pubkey through openssl
             // Instead, let's issue a second cert with the same dummy approach - the cert content doesn't need to match the ENVELOPEDKEYBLOB pubkey strictly for demo
             let _ = std::process::Command::new("openssl")
-                .args(&[
+                .args([
                     "x509",
                     "-req",
                     "-in",
@@ -1211,17 +1209,15 @@ fn handle_request(
         }
         "ImportCertificate" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::ImportCertificate::handle(
-                ctx, state, &params, lang,
-            );
+            skf_service::domain::container::ImportCertificate::handle(ctx, state, &params, lang)
         }
         "SignData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::SignData::handle(ctx, state, &params, lang);
+            skf_service::domain::crypto::SignData::handle(ctx, state, &params, lang)
         }
         "ImportKeyPair" => {
             // Params: [providerName, deviceName, appName, containerName, alg, encKeyPair, wrapKey?, sm4Mode?]
-            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_param = req.params.first().and_then(|v| v.as_str()).unwrap_or("");
             let provider = if prov_param.is_empty() || prov_param == "default" {
                 &ctx.config.default
             } else {
@@ -1381,7 +1377,7 @@ fn handle_request(
             // longer a handle and must never be converted into one: passing a
             // fabricated value to the vendor library was observed to kill the
             // process. Any non-string, unknown, or wrong-kind value is rejected.
-            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.first().and_then(|v| v.as_str()) {
                 Some(handle) => handle,
                 None => return RpcResponse::err(-11, "Invalid or expired handle".into(), id),
             };
@@ -1398,7 +1394,7 @@ fn handle_request(
         "FindCertificates" => {
             let provider_list: Vec<String> = ctx.config.libs.keys().cloned().collect();
 
-            let filter_str = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let filter_str = req.params.first().and_then(|v| v.as_str()).unwrap_or("");
             let want_sign = filter_str.is_empty() || filter_str.eq_ignore_ascii_case("Sign");
             let want_enc = filter_str.is_empty() || filter_str.eq_ignore_ascii_case("Enc");
 
@@ -1583,7 +1579,7 @@ fn handle_request(
             RpcResponse::ok(serde_json::json!(results), id)
         }
         "GenerateRandom" => {
-            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.first().and_then(|v| v.as_str()) {
                 Some(handle) => handle,
                 None => return RpcResponse::err(-2, "Bad params".into(), id),
             };
@@ -1610,7 +1606,7 @@ fn handle_request(
         }
         "Digest" => {
             // Params: [providerName, deviceName, dataBase64, alg]
-            let prov_name = match req.params.get(0).and_then(|v| v.as_str()) {
+            let prov_name = match req.params.first().and_then(|v| v.as_str()) {
                 Some(p) => p,
                 None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
             };
@@ -1718,23 +1714,23 @@ fn handle_request(
         }
         "CheckPIN" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::pin::CheckPIN::handle(ctx, state, &params, lang);
+            skf_service::domain::pin::CheckPIN::handle(ctx, state, &params, lang)
         }
         "CreatePKCS10" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::CreatePKCS10::handle(ctx, state, &params, lang);
+            skf_service::domain::crypto::CreatePKCS10::handle(ctx, state, &params, lang)
         }
         "EncryptData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::EncryptData::handle(ctx, state, &params, lang);
+            skf_service::domain::crypto::EncryptData::handle(ctx, state, &params, lang)
         }
         "DecryptData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::DecryptData::handle(ctx, state, &params, lang);
+            skf_service::domain::crypto::DecryptData::handle(ctx, state, &params, lang)
         }
         "GetDevInfo" => {
             // Params: [providerName, deviceName]
-            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_param = req.params.first().and_then(|v| v.as_str()).unwrap_or("");
             let prov_name = if prov_param.is_empty() || prov_param == "default" {
                 &ctx.config.default
             } else {
@@ -1810,7 +1806,7 @@ fn handle_request(
         }
         "GetDevState" => {
             // Params: [providerName, deviceName]
-            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_param = req.params.first().and_then(|v| v.as_str()).unwrap_or("");
             let prov_name = if prov_param.is_empty() || prov_param == "default" {
                 &ctx.config.default
             } else {
@@ -1886,7 +1882,7 @@ fn handle_request(
         }
         "SetLabel" => {
             // Params: [providerName, deviceName, label]
-            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_param = req.params.first().and_then(|v| v.as_str()).unwrap_or("");
             let prov_name = if prov_param.is_empty() || prov_param == "default" {
                 &ctx.config.default
             } else {
@@ -1934,7 +1930,7 @@ fn handle_request(
         }
         "ECCVerify" => {
             // Params: [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]
-            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let prov_param = req.params.first().and_then(|v| v.as_str()).unwrap_or("");
             let prov_name = if prov_param.is_empty() || prov_param == "default" {
                 &ctx.config.default
             } else {
@@ -2024,23 +2020,19 @@ fn handle_request(
         }
         "CreateContainer" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::CreateContainer::handle(
-                ctx, state, &params, lang,
-            );
+            skf_service::domain::container::CreateContainer::handle(ctx, state, &params, lang)
         }
         "GetContainerType" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::GetContainerType::handle(
-                ctx, state, &params, lang,
-            );
+            skf_service::domain::container::GetContainerType::handle(ctx, state, &params, lang)
         }
         "RSASignData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::crypto::RSASignData::handle(ctx, state, &params, lang);
+            skf_service::domain::crypto::RSASignData::handle(ctx, state, &params, lang)
         }
         "LockDev" => {
             // Params: [providerName, deviceName, timeout]
-            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+            let provider = match req.params.first().and_then(|v| v.as_str()) {
                 Some(p) => p,
                 None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
             };
@@ -2088,7 +2080,7 @@ fn handle_request(
         }
         "UnlockDev" => {
             // Params: [providerName, deviceName]
-            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+            let provider = match req.params.first().and_then(|v| v.as_str()) {
                 Some(p) => p,
                 None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
             };
@@ -2134,7 +2126,7 @@ fn handle_request(
         }
         "Transmit" => {
             // Params: [providerName, deviceName, commandBase64]
-            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+            let provider = match req.params.first().and_then(|v| v.as_str()) {
                 Some(p) => p,
                 None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
             };
@@ -2222,15 +2214,15 @@ fn handle_request(
         }
         "GenECCKeyPair" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::keys::GenECCKeyPair::handle(ctx, state, &params, lang);
+            skf_service::domain::keys::GenECCKeyPair::handle(ctx, state, &params, lang)
         }
         "GenRSAKeyPair" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::keys::GenRSAKeyPair::handle(ctx, state, &params, lang);
+            skf_service::domain::keys::GenRSAKeyPair::handle(ctx, state, &params, lang)
         }
         "RSAVerify" => {
             // Params: [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]
-            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+            let provider = match req.params.first().and_then(|v| v.as_str()) {
                 Some(p) => p,
                 None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
             };
@@ -2326,7 +2318,7 @@ fn handle_request(
         }
         "DigestInit" => {
             // Params: [providerName, deviceName, algId, idBase64]
-            let provider = match req.params.get(0).and_then(|v| v.as_str()) {
+            let provider = match req.params.first().and_then(|v| v.as_str()) {
                 Some(p) => p,
                 None => return RpcResponse::err(-2, "Missing providerName param".into(), id),
             };
@@ -2410,7 +2402,7 @@ fn handle_request(
         }
         "DigestUpdate" => {
             // Params: [handle, dataBase64]
-            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.first().and_then(|v| v.as_str()) {
                 Some(h) => h,
                 None => return RpcResponse::err(-2, "Missing handle param".into(), id),
             };
@@ -2445,7 +2437,7 @@ fn handle_request(
         }
         "DigestFinal" => {
             // Params: [handle]
-            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.first().and_then(|v| v.as_str()) {
                 Some(h) => h,
                 None => return RpcResponse::err(-2, "Missing handle param".into(), id),
             };
@@ -2471,7 +2463,7 @@ fn handle_request(
         }
         "CloseHash" => {
             // Params: [handle]
-            let handle = match req.params.get(0).and_then(|v| v.as_str()) {
+            let handle = match req.params.first().and_then(|v| v.as_str()) {
                 Some(h) => h,
                 None => return RpcResponse::err(-2, "Missing handle param".into(), id),
             };

@@ -35,12 +35,11 @@ async fn an_over_limit_frame_is_rejected_and_the_service_survives() {
     // The server must close the conversation rather than serve it. Any of
     // None / Err / a Close frame is acceptable; a normal response is not.
     let outcome = tokio::time::timeout(Duration::from_secs(10), socket.next()).await;
-    match outcome {
-        Ok(Some(Ok(Message::Text(text)))) => panic!(
+    if let Ok(Some(Ok(Message::Text(text)))) = outcome {
+        panic!(
             "an over-limit frame must not be served, got {} bytes",
             text.len()
-        ),
-        _ => {}
+        )
     }
     drop(socket);
 
