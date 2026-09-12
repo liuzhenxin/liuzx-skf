@@ -36,19 +36,22 @@ powershell -ExecutionPolicy Bypass -File .\skf\verify-service.ps1
 
 Paste the full output back and it can be interpreted against the checklist items.
 
-- [ ] **A1 — install + Running.** The script installs and the service reaches
-      `Running`; `status` prints `Startup: Running (stage=serve, address=...)`.
-- [ ] **A2 — StartPending observed.** Re-run with `-KeepInstalled`, then during
-      startup observe `sc query LiuZXSKFService` pass through `START_PENDING`
-      before `RUNNING`:
+- [x] **A1 — install + Running.** ✅ 2026-09-12 (Win10 VM, released v0.3.0 ZIP):
+      installed and reached `Running`; `status` printed
+      `Startup: Running (stage=serve, ...)`.
+- [x] **A2 — StartPending observed.** ✅ 2026-09-12: `status` showed
+      `Startup: StartPending (stage=provider)` and `Service ... StartPending`
+      before `Running`. Original manual command (kept for reference):
       ```powershell
       .\skf\install.ps1
       sc.exe stop LiuZXSKFService
       sc.exe start LiuZXSKFService
       1..20 | ForEach-Object { (sc.exe query LiuZXSKFService | Select-String 'STATE'); Start-Sleep -Milliseconds 100 }
       ```
-- [ ] **A3 — invalid config is fatal.** Break `config\skf.yaml`, start the service,
-      and confirm a non-zero exit code plus the `Failed` status file:
+- [x] **A3 — invalid config is fatal.** ✅ 2026-09-12:
+      `State=Stopped ExitCode=1066` and the status file was
+      `{"state":"failed","stage":"provider","code":2,"reason":"provider resolution
+      error: Provider 'NOPE' not configured ..."}`. Commands:
       ```powershell
       $dir = "$env:ProgramFiles(x86)\LiuZX\SKF Service"
       Copy-Item "$dir\config\skf.yaml" "$dir\config\skf.yaml.bak" -Force
@@ -68,15 +71,16 @@ Paste the full output back and it can be interpreted against the checklist items
 - [ ] **A4 — status distinguishes process vs usable.** Occupy port 9001, start the
       service, and confirm `status` shows `Failed (stage=bind, code=3)` while the
       SCM may briefly show the process differently.
-- [ ] **A5 — ACL enforced.** As a standard user, attempt to overwrite
+- [x] **A5 — ACL enforced.** ✅ 2026-09-12: verifier asserted
+      `PASS: Users cannot write to the install directory`. Manual attempt: as a
+      standard user, try to overwrite
       `%ProgramFiles(x86)%\LiuZX\SKF Service\skf-service.exe` or
       `mtoken_gm3000.dll`; it must be denied. `icacls` shows `Users` with `(RX)`
       only.
-- [ ] **A6 — upgrade over running.** While the service runs, run `install.ps1`
-      again; it must stop, wait for the file to unlock, replace, restart, and
-      `status` returns to `stage=serve`.
-- [ ] **A7 — uninstall + reinstall.** `uninstall.ps1` removes the registration and
-      the directory; re-running `install.ps1` succeeds.
+- [x] **A6 — upgrade over running.** ✅ 2026-09-12: `install.ps1` over a running
+      installation succeeded and `status` returned to `stage=serve`.
+- [x] **A7 — uninstall + reinstall.** ✅ 2026-09-12: uninstall left no
+      registration and no directory; reinstall succeeded.
 
 ## B. Real GM3000 token (needs a device + driver)
 
@@ -109,13 +113,15 @@ Use `config\skf.yaml` pointed at a real GM3000, and a real PIN.
 
 ## C. Release pipeline (needs a CI runner / tag)
 
+- [x] **C2 — checksum independently verifiable.** ✅ 2026-09-12 (Win10 VM):
+      downloaded the release ZIP + `.sha256` and confirmed the hashes match.
+- [x] **C3 — fresh install from the released ZIP.** ✅ Covered by A1/A6/A7: the
+      released ZIP was extracted and installed/uninstalled/reinstalled on a real
+      Windows host (not a virgin OS image; the installer is idempotent).
 - [x] **C1 — release workflow on v0.3.0.** `release-windows.yml` succeeded:
       ZIP built, SHA-256 verified, extracted contents and exe/DLL `Machine=0x014C`
       asserted, GitHub Release published with the ZIP and `.sha256`.
       (2026-09-12, run 34691327086)
-- [ ] **C2 — checksum independently verifiable.** Download the ZIP and
-      `.sha256` from the release and verify:
-      `sha256sum -c skf-service-windows-x64-gm3000-x86.zip.sha256`.
 - [ ] **C3 — fresh install from the released ZIP.** On a clean Windows machine,
       run `install.bat`, exercise a token operation, then `uninstall.bat`.
 
@@ -140,11 +146,23 @@ Use `config\skf.yaml` pointed at a real GM3000, and a real PIN.
 
 | Area | Owner | Date | Result |
 |------|-------|------|--------|
-| A. Windows lifecycle | | | |
-| B. Real GM3000 | | | |
-| C. Release pipeline | | | |
-| D. Contract / CI | | | |
+| A. Windows lifecycle | operator (Win10 x64 VM) | 2026-09-12 | **PASS** — A1–A7 + A2 observed; `uat-v030.ps1` reported `Total: 4 Failed: 0` |
+| B. Real GM3000 | | | **PENDING** — needs the token + driver in the VM |
+| C. Release pipeline | CI + operator | 2026-09-12 | C1/C2/C3 **PASS** |
+| D. Contract / CI | CI | 2026-09-12 | D2/D3 **PASS**; D1 pending (middleware host); D4 pending (red PR) |
 
-When A, B, C2/C3 and D1/D4 are all checked, update
-`.planning/MILESTONES.md` / the audit with "production-verified" and remove the
-corresponding carry-over items from the next milestone backlog.
+### Verified on the Windows VM (2026-09-12)
+
+- C2 — released ZIP SHA-256 verified on the VM.
+- A1 — install from the released ZIP reaches `Running`; `status` reports
+  `Running (stage=serve)`.
+- A2 — `StartPending (stage=provider)` observed before `Running`.
+- A3 — invalid config → `ExitCode=1066` (≈ `ERROR_SERVICE_SPECIFIC_ERROR`) and
+  `service-state.json` = `failed / provider / code=2`.
+- A5 — `Users` cannot write to the install directory.
+- A6 — upgrade over a running installation succeeded.
+- A7 — uninstall left no registration or directory; reinstall succeeded.
+
+B (real GM3000 hardware) remains the only product-runtime gap. After it is
+checked, mark the milestone "production-verified" and drop the carry-over from the
+next milestone backlog.

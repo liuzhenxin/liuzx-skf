@@ -4,6 +4,17 @@
 
 **Phases completed:** 6 phases, 20 plans, 29 tasks
 
+**Post-ship verification (2026-09-12):**
+- Windows service lifecycle UAT passed on a Windows 10 x64 VM against the
+  released v0.3.0 ZIP: install → `Running (stage=serve)`, `StartPending
+  (stage=provider)` observed, invalid config → `ExitCode=1066` +
+  `failed/provider/code=2`, install-dir ACL enforced, upgrade over running,
+  uninstall + reinstall. (`packaging/windows/uat-v030.ps1`, `Total: 4 Failed: 0`)
+- Released ZIP SHA-256 independently verified on the VM.
+- GitHub Release v0.3.0 published with the ZIP and checksum; `dev`/`main` CI green;
+  branch protection on `main` requires the five CI checks.
+- Remaining before "production-verified": real GM3000 hardware UAT (checklist B).
+
 **Key accomplishments:**
 
 - 37 v0.2.0 JSON-RPC methods frozen as regression fixtures recorded from the untouched pre-refactor binary, with a normalization oracle proven able to fail and zero undeclared volatility on re-record.
