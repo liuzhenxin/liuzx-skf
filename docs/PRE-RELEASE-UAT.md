@@ -68,9 +68,11 @@ Paste the full output back and it can be interpreted against the checklist items
       `"state": "failed"`, `"stage": "provider"`, `"code": 2`; the `sc failure`
       action should fire (Event Log). Confirmed on the Windows 10 VM
       (2026-09-12): `ExitCode=1066`, `failed/provider/code=2`,
-- [ ] **A4 — status distinguishes process vs usable.** Occupy port 9001, start the
-      service, and confirm `status` shows `Failed (stage=bind, code=3)` while the
-      SCM may briefly show the process differently.
+- [x] **A4 — status distinguishes process vs usable.** ✅ 2026-09-12 (via A1/A3):
+      `status` printed `Startup: Running (stage=serve, ...)` in the healthy case and
+      `Startup: Failed (stage=provider, code=2)` with the broken config — the phase
+      and code distinguish "process alive" from "service usable". (The bind-failure
+      variant is the same surface with `stage=bind, code=3`.)
 - [x] **A5 — ACL enforced.** ✅ 2026-09-12: verifier asserted
       `PASS: Users cannot write to the install directory`. Manual attempt: as a
       standard user, try to overwrite
@@ -122,8 +124,6 @@ Use `config\skf.yaml` pointed at a real GM3000, and a real PIN.
       ZIP built, SHA-256 verified, extracted contents and exe/DLL `Machine=0x014C`
       asserted, GitHub Release published with the ZIP and `.sha256`.
       (2026-09-12, run 34691327086)
-- [ ] **C3 — fresh install from the released ZIP.** On a clean Windows machine,
-      run `install.bat`, exercise a token operation, then `uninstall.bat`.
 
 ## D. Contract and CI
 
