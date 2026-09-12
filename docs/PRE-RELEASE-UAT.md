@@ -11,22 +11,57 @@ Legend: `[ ]` pending · `[x]` done. Record the observed result beside each item
 
 ## A. Windows service lifecycle (needs a Windows host, administrator)
 
-Script: `packaging/windows/verify-service.ps1`
+### VM quick start (copy/paste into an **elevated** PowerShell on the VM)
+
+Tests the actual released artifact, including the checksum:
 
 ```powershell
-# Extract the released ZIP, then from that directory:
-powershell -ExecutionPolicy Bypass -File packaging\windows\verify-service.ps1
+$ErrorActionPreference = "Stop"
+$base = "https://github.com/liuzhenxin/liuzx-skf/releases/download/v0.3.0/skf-service-windows-x64-gm3000-x86.zip"
+Invoke-WebRequest "$base"        -OutFile skf.zip
+Invoke-WebRequest "$base.sha256" -OutFile skf.zip.sha256
+
+# C2: verify the checksum independently
+$expected = ((Get-Content skf.zip.sha256) -split ' ')[0].Trim().ToLower()
+$actual   = (Get-FileHash skf.zip -Algorithm SHA256).Hash.ToLower()
+if ($expected -ne $actual) { throw "checksum mismatch: $expected vs $actual" }
+Write-Host "C2 PASS: SHA-256 matches"
+
+Expand-Archive skf.zip -DestinationPath skf -Force
+Set-ExecutionPolicy -Scope Process -Force Bypass
+
+# A1/A2/A5/A6/A7: install -> status -> upgrade -> ACL -> uninstall -> reinstall
+powershell -ExecutionPolicy Bypass -File .\skf\verify-service.ps1
 ```
+
+Paste the full output back and it can be interpreted against the checklist items.
 
 - [ ] **A1 — install + Running.** The script installs and the service reaches
       `Running`; `status` prints `Startup: Running (stage=serve, address=...)`.
 - [ ] **A2 — StartPending observed.** Re-run with `-KeepInstalled`, then during
       startup observe `sc query LiuZXSKFService` pass through `START_PENDING`
-      before `RUNNING`.
-- [ ] **A3 — invalid config is fatal.** Break `config\skf.yaml` (point `default`
-      at a missing alias), start the service, and confirm:
-      `service-state.json` shows `failed(stage=provider, code=2)`, and the `sc
-      failure` restart action fires (Event Log).
+      before `RUNNING`:
+      ```powershell
+      .\skf\install.ps1
+      sc.exe stop LiuZXSKFService
+      sc.exe start LiuZXSKFService
+      1..20 | ForEach-Object { (sc.exe query LiuZXSKFService | Select-String 'STATE'); Start-Sleep -Milliseconds 100 }
+      ```
+- [ ] **A3 — invalid config is fatal.** Break `config\skf.yaml`, start the service,
+      and confirm a non-zero exit code plus the `Failed` status file:
+      ```powershell
+      $dir = "$env:ProgramFiles(x86)\LiuZX\SKF Service"
+      Copy-Item "$dir\config\skf.yaml" "$dir\config\skf.yaml.bak" -Force
+      (Get-Content "$dir\config\skf.yaml") -replace '^default:.*', 'default: NOPE' | Set-Content "$dir\config\skf.yaml"
+      sc.exe stop LiuZXSKFService | Out-Null; Start-Sleep 2
+      sc.exe start LiuZXSKFService
+      Start-Sleep 3
+      (Get-CimInstance Win32_Service -Filter "Name='LiuZXSKFService'").ExitCode
+      Get-Content "$dir\service-state.json"
+      Move-Item "$dir\config\skf.yaml.bak" "$dir\config\skf.yaml" -Force
+      ```
+      Expect a non-zero `ExitCode`, `"state": "failed"`, `"stage": "provider"`,
+      `"code": 2`; the `sc failure` action should fire (Event Log).
 - [ ] **A4 — status distinguishes process vs usable.** Occupy port 9001, start the
       service, and confirm `status` shows `Failed (stage=bind, code=3)` while the
       SCM may briefly show the process differently.
