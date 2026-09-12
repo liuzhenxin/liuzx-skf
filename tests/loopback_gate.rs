@@ -32,9 +32,13 @@ fn write_config(extra: &str) -> String {
         std::process::id(),
         seq
     ));
+    // The path must exist for the *current* OS: `bind_with_progress` treats a
+    // missing OS path as a fatal configuration error (phase 5 D-08), so a
+    // macOS-only config would fail on Linux before reaching the loopback check.
     let body = format!(
-        "default: GM3000\nvendor: {{}}\n{}GM3000:\n  macos: native/x.dylib\n",
-        extra
+        "default: GM3000\nvendor: {{}}\n{}GM3000:\n  {}: native/x-lib\n",
+        extra,
+        std::env::consts::OS
     );
     std::fs::write(&path, body).expect("write config");
     path.to_string_lossy().into_owned()

@@ -48,8 +48,9 @@ jobs:
     # The frozen contract replay starts the real binary and loads the committed
     # x86_64 vendor dylib (native/GM3000/macos/x86_64/libgm3000.1.0.dylib). A Linux
     # runner lacks the Linux .so and an arm64 runner cannot load the x86_64 dylib,
-    # so this job must run on an x86_64 macOS image.
-    runs-on: macos-13
+    # so this job must run on an x86_64 macOS image. `macos-13` was retired by
+    # GitHub; `macos-15-intel` is the current Intel macOS label.
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - name: cargo test

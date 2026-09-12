@@ -10,7 +10,7 @@ pushes to `main` and `dev`.
 | `fmt` | ubuntu-latest | `cargo fmt --all -- --check` | Keeps the tree rustfmt-clean (QUAL-01) |
 | `clippy` | ubuntu-latest | `cargo clippy --all-targets -- -D warnings` | Warnings are hard failures (QUAL-02) |
 | `test` | ubuntu-latest | `cargo test --lib` and the invariant/no-vendor integration suites | Fast hardware-free signal |
-| `test-full` | x86_64 macOS | `cargo test` | The authoritative suite, including the frozen contract replay |
+| `test-full` | x86_64 macOS (`macos-15-intel`) | `cargo test` | The authoritative suite, including the frozen contract replay |
 | `windows-i686` | ubuntu-latest | `cargo check --target i686-pc-windows-gnu` | Guards the PE32/i386 constraint |
 | `gate-selftest` | ubuntu-latest | writes a failing test, asserts `cargo test` exits non-zero | Proves the gate is failure-sensitive (QUAL-04) |
 
@@ -43,8 +43,9 @@ v0.2.0 fixtures. The binary loads the vendor middleware
 - An arm64 macOS runner cannot load the x86_64 dylib into a freshly built arm64
   test binary.
 
-Therefore `test-full` pins an x86_64 macOS image (`macos-13`). If that label is
-retired, pick the available x86_64 macOS label.
+Therefore `test-full` pins an x86_64 macOS image (`macos-15-intel`; `macos-13`
+was retired by GitHub). If that label is unavailable, pick another x86_64 macOS
+label.
 
 ## Branch protection (required, set in GitHub, not in this repository)
 
