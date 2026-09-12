@@ -83,7 +83,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 04-01: TBD
+- [x] 04-01: TBD
 - [ ] 04-02: TBD
 
 ### Phase 5: Windows Service Reliability

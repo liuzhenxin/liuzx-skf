@@ -45,7 +45,7 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 ### Code Quality and CI (QUAL)
 
-- [ ] **QUAL-01**: `cargo fmt -- --check` passes for the whole repository
+- [x] **QUAL-01**: `cargo fmt -- --check` passes for the whole repository
 - [ ] **QUAL-02**: `cargo clippy --all-targets` produces no actionable warnings, with any surviving allow explicitly scoped and documented
 - [ ] **QUAL-03**: A CI workflow runs formatting, linting, hardware-free tests, and an i686 Windows compile check on pull requests and main-branch pushes
 - [ ] **QUAL-04**: A deliberately failing test blocks the CI check, proving the gate is enforced rather than advisory
@@ -154,7 +154,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | TRANS-05 | Phase 3 | Complete |
 | TRANS-06 | Phase 3 | Complete |
 | TRANS-07 | Phase 3 | Complete |
-| QUAL-01 | Phase 4 | Pending |
+| QUAL-01 | Phase 4 | Complete |
 | QUAL-02 | Phase 4 | Pending |
 | QUAL-03 | Phase 4 | Pending |
 | QUAL-04 | Phase 4 | Pending |
