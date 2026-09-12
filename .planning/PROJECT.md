@@ -49,11 +49,15 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - ✓ 服务逐阶段上报 `StartPending`，仅在监听器绑定且配置解析后报 `Running`；启动失败以 `ServiceSpecific(1..4)` 退出并写状态文件，`status` 报告阶段 — Phase 5（`src/service_state.rs`、`src/win_service.rs`、`docs/WINDOWS-SERVICE.md`）
 - ✓ 安装器对安装目录施加并校验限制性 ACL（SYSTEM/Administrators 全控，Users 仅 RX）；升级/卸载轮询等待进程退出与文件解锁，不留下残留注册或锁定文件 — Phase 5（`packaging/windows/install.ps1`、`uninstall.ps1`、`verify-service.ps1`）
 
+- ✓ 日志结构化（JSON Lines）、分级、按 10 MiB 轮转并保留 7 个文件；扫描测试保证不含 PIN/密钥/解密载荷 — Phase 6（`src/logging.rs`、`tests/log_redaction.rs`）
+- ✓ 本地 `skf-service diagnose [--json]` 报告 config/provider/库文件/库加载/监听器五阶段与运行中状态，只输出非敏感事实（不含库路径） — Phase 6（`src/diagnostic.rs`）
+- ✓ 协议接受可选 `apiVersion`，新增 `GetProtocolVersion`（文档化增补），v0.2.0 客户端无需修改；受限方法可经 `SKF_RESTRICT_LEGACY=1` 返回文档化 `-100` — Phase 6（`tests/protocol_version.rs`、`tests/restricted_methods.rs`）
+- ✓ 发布 ZIP 带 SHA-256，workflow 校验 checksum 并解包断言内容与 exe/DLL `Machine=0x014C` — Phase 6（`packaging/windows/build.ps1`、`release-windows.yml`）
+- ✓ 威胁模型、中英对照会话/限制文档、发布说明与 agent 文档已补齐 — Phase 6（`THREAT-MODEL.md`、`docs/SESSION-AND-LIMITS.md`、`RELEASE-NOTES.md`）
+
 ### Active
 
-- [ ] 操作员可以通过不泄露敏感信息的健康诊断了解配置、端口、provider 和驱动状态
-- [ ] Windows 服务日志有级别、关联信息、轮转和保留策略，不会无限增长
-- [ ] Release 产物包含可校验的摘要和构建元数据，并执行包结构与启动冒烟检查
+- *(none — v0.3.0 scope complete; see Deferred and the roadmap backlog)*
 
 ### Out of Scope
 
@@ -118,4 +122,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-12 after Phase 5 (Windows Service Reliability)*
+*Last updated: 2026-09-12 after Phase 6 (Observability, Diagnostics, and Release Verification) — v0.3.0 milestone complete*
