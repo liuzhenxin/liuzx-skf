@@ -100,7 +100,7 @@ Plans:
 
 Plans:
 - [x] 05-01: TBD
-- [ ] 05-02: TBD
+- [x] 05-02: TBD
 
 ### Phase 6: Observability, Diagnostics, and Release Verification
 **Goal**: 让运维人员能够诊断问题而不泄露敏感信息，并让发布产物可被独立校验。
