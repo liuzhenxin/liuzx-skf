@@ -72,6 +72,17 @@ Set-ExecutionPolicy -Scope Process -Force Bypass
 $verify = Join-Path $pkg "verify-service.ps1"
 if (-not (Test-Path $verify)) { throw "verify-service.ps1 not found in the package" }
 
+# The verifier inside the published v0.3.0 ZIP predates the state-transition
+# waits added after the first UAT run, so it can observe StartPending and report a
+# false failure. Overwrite it with the repository version; the service binary under
+# test is still the released one.
+try {
+    Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/liuzhenxin/liuzx-skf/dev/packaging/windows/verify-service.ps1" -OutFile $verify -ErrorAction Stop
+    Write-Host "Using the repository verifier (with state-transition waits)"
+} catch {
+    Write-Host "Falling back to the packaged verifier: $($_.Exception.Message)"
+}
+
 Step "A1/A5/A6/A7" {
     $out = & powershell -ExecutionPolicy Bypass -File $verify 2>&1 | Out-String
     Write-Host $out

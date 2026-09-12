@@ -60,8 +60,11 @@ Paste the full output back and it can be interpreted against the checklist items
       Get-Content "$dir\service-state.json"
       Move-Item "$dir\config\skf.yaml.bak" "$dir\config\skf.yaml" -Force
       ```
-      Expect a non-zero `ExitCode`, `"state": "failed"`, `"stage": "provider"`,
-      `"code": 2`; the `sc failure` action should fire (Event Log).
+      Expect a non-zero `ExitCode` (Windows reports `1066`
+      = `ERROR_SERVICE_SPECIFIC_ERROR`, with the real code in the status file),
+      `"state": "failed"`, `"stage": "provider"`, `"code": 2`; the `sc failure`
+      action should fire (Event Log). Confirmed on the Windows 10 VM
+      (2026-09-12): `ExitCode=1066`, `failed/provider/code=2`,
 - [ ] **A4 — status distinguishes process vs usable.** Occupy port 9001, start the
       service, and confirm `status` shows `Failed (stage=bind, code=3)` while the
       SCM may briefly show the process differently.
