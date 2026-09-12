@@ -115,6 +115,32 @@ fn main() -> anyhow::Result<()> {
     // dispatcher, so the builder is installed before any server path runs.
     skf_service::server::install_session_builder(build_sessions);
 
+    // Local diagnostic. Handled before the Windows SCM dispatch so it works on
+    // every platform and whether or not the service is running (OBS-03).
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("diagnose") {
+        let json = args.iter().any(|a| a == "--json");
+        let mut config_path =
+            std::env::var("SKF_CONFIG").unwrap_or_else(|_| "config/skf.yaml".to_string());
+        if let Some(pos) = args.iter().position(|a| a == "--config") {
+            if let Some(value) = args.get(pos + 1) {
+                config_path = value.clone();
+            }
+        }
+        let ws_addr = std::env::var("SKF_WS_ADDR").unwrap_or_else(|_| "127.0.0.1:9001".to_string());
+        let state_file = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("service-state.json")));
+        let report = skf_service::diagnostic::run(&config_path, &ws_addr, state_file.as_deref());
+        let rendered = if json {
+            skf_service::diagnostic::render_json(&report)
+        } else {
+            skf_service::diagnostic::render_text(&report)
+        };
+        print!("{}", rendered);
+        return Ok(());
+    }
+
     // Windows Service (SCM) management commands and service entry point.
     // Compiled only on Windows targets; ignored on other platforms.
     #[cfg(windows)]

@@ -22,6 +22,7 @@
 
 pub mod config;
 pub mod crypto;
+pub mod diagnostic;
 pub mod domain;
 pub mod logging;
 pub mod protocol;
