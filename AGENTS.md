@@ -225,3 +225,12 @@ A: 目前支持国密算法（SM2、SM3、SM4）和 RSA 算法。
 - 国密算法
 - USB Key 设备管理
 - PKI 证书管理
+## 重构后的模块布局与本地诊断
+
+- `protocol/`、`domain/`、`session/`、`provider/`、`service_state/`、`logging/`、
+  `diagnostic/`、`server/`、`config/`、`crypto/`、`skf/`（权威列表见 `src/lib.rs`）。
+- 本地诊断：`skf-service.exe diagnose [--config <path>] [--json]`，只输出阶段布尔、
+  provider 别名、端口、uptime 与错误类别，不泄露库路径/配置值/凭据。
+- 日志：结构化 JSON 行写入 `<install>/logs/skf-service.log`，10 MiB 轮转保留 7 个；
+  `tests/log_redaction.rs` 扫描源码阻止敏感值进入日志宏。
+- 门禁与限制：`docs/CI.md`、`THREAT-MODEL.md`、`docs/SESSION-AND-LIMITS.md`。

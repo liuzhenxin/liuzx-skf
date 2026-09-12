@@ -158,3 +158,33 @@ Connect to the WebSocket and send:
   "id": 1
 }
 ```
+
+## Development, module layout, and the gate
+
+Rust modules after the refactor (see `src/lib.rs`):
+
+| Module | Responsibility |
+| ------ | -------------- |
+| `protocol/` | `RpcRequest`/`RpcResponse`/`Language` and typed parameter access |
+| `domain/` | security-relevant handlers, read-only/destructive classification, restricted set |
+| `session/` | session, authorization (TTL/deadline), opaque handle table |
+| `provider/` | SKF provider abstraction (native guards + failure-injecting fake) |
+| `service_state/` | Windows service startup status file and exit codes |
+| `logging/` | structured JSON-line rotating logs and redaction |
+| `diagnostic/` | local diagnostic report |
+| `server/` | transport, bind/serve, session seam |
+| `config/` `crypto/` `skf/` | configuration, pure encoding logic, SKF C ABI adapter |
+
+Common commands:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo check --target i686-pc-windows-gnu
+skf-service.exe diagnose --json        # local diagnostics (no paths/credentials)
+```
+
+See `docs/CI.md` for the merge gate, `THREAT-MODEL.md` for the trust boundary,
+`docs/SESSION-AND-LIMITS.md` for the session/limits model, and
+`docs/WINDOWS-SERVICE.md` for the Windows service.

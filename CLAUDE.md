@@ -391,3 +391,14 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+## Refactored layout, diagnostics, and the gate
+
+- Modules (authoritative list in `src/lib.rs`): `protocol/`, `domain/`, `session/`,
+  `provider/`, `service_state/`, `logging/`, `diagnostic/`, `server/`, `config/`,
+  `crypto/`, `skf/`.
+- Local diagnostic: `skf-service.exe diagnose [--config <path>] [--json]` reports
+  stage booleans, provider alias, ports, uptime, and an error class only.
+- Logging: structured JSON lines in `<install>/logs/skf-service.log`, rotated at
+  10 MiB keeping 7 files.
+- Gate and constraints: `docs/CI.md`, `THREAT-MODEL.md`, `docs/SESSION-AND-LIMITS.md`.
