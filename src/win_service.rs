@@ -40,6 +40,8 @@ use windows_service::{
 };
 use windows_sys::Win32::System::Console::{SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE};
 
+use crate::service_state::{self, ServiceState as FileState, ServiceStatusFile, StartupStage};
+
 pub const SERVICE_NAME: &str = "LiuZXSKFService";
 pub const SERVICE_DISPLAY_NAME: &str = "LiuZX SKF Service";
 const SERVICE_DESCRIPTION: &str =
@@ -165,6 +167,31 @@ pub fn status() -> Result<()> {
             let st = svc
                 .query_status()
                 .context("unable to query service status")?;
+            // Prefer the startup status file: it distinguishes "the process is
+            // alive" from "the service is usable" by naming the phase
+            // (SVC-05). Absent file falls back to the SCM-only output below.
+            if let Some(file) = service_state::read(&state_file_path()) {
+                match file.state {
+                    FileState::Running => println!(
+                        "Startup: Running (stage={}, address={})",
+                        file.stage.as_str(),
+                        file.address.as_deref().unwrap_or("unknown")
+                    ),
+                    FileState::Failed => println!(
+                        "Startup: Failed (stage={}, code={})",
+                        file.stage.as_str(),
+                        file.code.unwrap_or(0)
+                    ),
+                    FileState::StartPending => {
+                        println!("Startup: StartPending (stage={})", file.stage.as_str())
+                    }
+                    FileState::Stopped => println!("Startup: Stopped"),
+                }
+                if let Some(reason) = file.reason.as_deref() {
+                    println!("Reason: {}", reason);
+                }
+            }
+
             let state = match st.current_state {
                 ServiceState::Stopped => "Stopped",
                 ServiceState::StartPending => "StartPending",
@@ -245,42 +272,135 @@ fn run_service() -> Result<()> {
     let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)
         .map_err(|e| anyhow!("unable to register service control handler: {e}"))?;
 
-    status_handle
-        .set_service_status(ServiceStatus {
+    let pid = std::process::id();
+    let state_path = state_file_path();
+
+    // Report the current phase to the SCM. StartPending uses an increasing
+    // checkpoint so the SCM knows initialization is progressing; Running is only
+    // reported once the listener is bound (SVC-01).
+    let report = |state: ServiceState, checkpoint: u32, exit: ServiceExitCode| {
+        let controls = if state == ServiceState::Running {
+            ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN
+        } else {
+            ServiceControlAccept::empty()
+        };
+        let _ = status_handle.set_service_status(ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
-            current_state: ServiceState::Running,
-            controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: Duration::default(),
+            current_state: state,
+            controls_accepted: controls,
+            exit_code: exit,
+            checkpoint,
+            wait_hint: Duration::from_secs(10),
             process_id: None,
-        })
-        .map_err(|e| anyhow!("unable to report Running status: {e}"))?;
+        });
+    };
 
-    log::info!("skf-service running as Windows service '{}'", SERVICE_NAME);
+    report(ServiceState::StartPending, 0, ServiceExitCode::NO_ERROR);
+    let _ = service_state::write_atomic(
+        &state_path,
+        &ServiceStatusFile::pending(StartupStage::Config, Some(pid), now_seconds()),
+    );
 
-    // Build a dedicated Tokio runtime and run the very same server used in
-    // foreground mode. run_server() returns as soon as the stop watch flips.
+    let checkpoint = std::cell::Cell::new(0u32);
+    let opts = crate::server::ServerOptions::from_env(crate::server::RunMode::Service);
+    crate::server::prepare_working_directory(&opts.config_path);
+
+    // The phase callback writes the status file and advances the SCM checkpoint.
+    let on_stage = |stage: StartupStage| {
+        checkpoint.set(checkpoint.get() + 1);
+        let _ = service_state::write_atomic(
+            &state_path,
+            &ServiceStatusFile::pending(stage, Some(pid), now_seconds()),
+        );
+        report(
+            ServiceState::StartPending,
+            checkpoint.get(),
+            ServiceExitCode::NO_ERROR,
+        );
+    };
+
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| anyhow!("unable to create Tokio runtime: {e}"))?;
-    let server_result = rt.block_on(crate::server::run_server(
-        crate::server::ServerOptions::from_env(crate::server::RunMode::Service),
-        crate::server::NativeProviderFactory,
-        Some(stop_rx),
-        None,
-    ));
-    drop(rt);
 
-    // Report Stopped so the SCM considers the service stopped.
-    let _ = status_handle.set_service_status(ServiceStatus {
-        service_type: ServiceType::OWN_PROCESS,
-        current_state: ServiceState::Stopped,
-        controls_accepted: ServiceControlAccept::empty(),
-        exit_code: ServiceExitCode::Win32(0),
-        checkpoint: 0,
-        wait_hint: Duration::default(),
-        process_id: None,
+    let server_result: Result<()> = rt.block_on(async {
+        let (bound, listener, prepared) = match crate::server::bind_with_progress(
+            &opts,
+            &crate::server::NativeProviderFactory,
+            on_stage,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(e) => {
+                // A distinct non-zero exit code makes the installer's
+                // restart-on-failure action fire (SVC-02).
+                let code = e.exit_code();
+                let stage = e.stage();
+                let _ = service_state::write_atomic(
+                    &state_path,
+                    &ServiceStatusFile::failed(
+                        stage,
+                        code,
+                        short_reason(&e.to_string()),
+                        Some(pid),
+                        now_seconds(),
+                    ),
+                );
+                report(
+                    ServiceState::Stopped,
+                    0,
+                    ServiceExitCode::ServiceSpecific(code),
+                );
+                return Err(anyhow!(e.to_string()));
+            }
+        };
+
+        let address = bound.ws_addr.to_string();
+        let _ = service_state::write_atomic(
+            &state_path,
+            &ServiceStatusFile::running(&address, Some(pid), now_seconds()),
+        );
+        report(ServiceState::Running, 0, ServiceExitCode::NO_ERROR);
+        log::info!(
+            "skf-service running as Windows service '{}' on {}",
+            SERVICE_NAME,
+            address
+        );
+
+        let builder = crate::server::installed_session_builder()
+            .ok_or_else(|| anyhow!("no session builder installed"))?;
+        let sessions = builder(&prepared.config, &prepared.provider);
+
+        match crate::server::serve(listener, prepared, bound, sessions, Some(stop_rx)).await {
+            Ok(()) => {
+                let _ = service_state::write_atomic(
+                    &state_path,
+                    &ServiceStatusFile::stopped(now_seconds()),
+                );
+                report(ServiceState::Stopped, 0, ServiceExitCode::NO_ERROR);
+                Ok(())
+            }
+            Err(e) => {
+                let _ = service_state::write_atomic(
+                    &state_path,
+                    &ServiceStatusFile::failed(
+                        StartupStage::Serve,
+                        service_state::EXIT_SERVE,
+                        short_reason(&e.to_string()),
+                        Some(pid),
+                        now_seconds(),
+                    ),
+                );
+                report(
+                    ServiceState::Stopped,
+                    0,
+                    ServiceExitCode::ServiceSpecific(service_state::EXIT_SERVE),
+                );
+                Err(e)
+            }
+        }
     });
+    drop(rt);
 
     server_result
 }
@@ -288,6 +408,35 @@ fn run_service() -> Result<()> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Path of the startup-status file written next to the executable.
+fn state_file_path() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("service-state.json")
+}
+
+/// Timestamp recorded in the status file (seconds since the Unix epoch).
+fn now_seconds() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default()
+}
+
+/// Keep a failure reason short and free of configuration values.
+fn short_reason(message: &str) -> String {
+    message
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(200)
+        .collect()
+}
 
 fn log_file_path() -> PathBuf {
     std::env::current_exe()
