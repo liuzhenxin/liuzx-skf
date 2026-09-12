@@ -98,7 +98,8 @@ foreach ($Name in @(
 if (Test-Path $Zip) { Remove-Item $Zip -Force }
 Compress-Archive -Path (Join-Path $Dist "*") -DestinationPath $Zip -CompressionLevel Optimal
 
-# Publish an independently verifiable checksum next to the ZIP.
+# Publish an independently verifiable checksum next to the ZIP as
+# <zip>.sha256 in sha256sum format.
 $hash = (Get-FileHash -Algorithm SHA256 -Path $Zip).Hash.ToLower()
 $sumFile = "$Zip.sha256"
 "$hash *$(Split-Path -Leaf $Zip)" | Set-Content -Encoding ascii -Path $sumFile
