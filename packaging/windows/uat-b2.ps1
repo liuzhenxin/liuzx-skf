@@ -41,12 +41,18 @@ function Receive-Rpc($ws) {
     do {
         $r = $ws.ReceiveAsync([ArraySegment[byte]]::new($buf), [Threading.CancellationToken]::None).GetAwaiter().GetResult()
         if ($r.MessageType -eq [Net.WebSockets.WebSocketMessageType]::Close) { throw "socket closed by server" }
-        $ms.Write($buf, 0, $r.Count)
+        [void]$ms.Write($buf, 0, $r.Count)
     } while (-not $r.EndOfMessage)
     return ([Text.Encoding]::UTF8.GetString($ms.ToArray()) | ConvertFrom-Json)
 }
-function Send-Rpc($ws, [string]$Method, $Params, [int]$Id) { Send-Only $ws $Method $Params $Id; return Receive-Rpc $ws }
-function Brief($r) { return ($r | ConvertTo-Json -Compress -Depth 6) }
+function Send-Rpc($ws, [string]$Method, $Params, [int]$Id) {
+    Send-Only $ws $Method $Params $Id
+    $parsed = Receive-Rpc $ws
+    # ConvertFrom-Json can yield an array in edge cases; keep the response object.
+    if ($parsed -is [array]) { $parsed = $parsed[-1] }
+    return $parsed
+}
+function Brief($r) { return (ConvertTo-Json -InputObject $r -Compress -Depth 6) }
 
 if ([string]::IsNullOrEmpty($Provider)) {
     $cfg = Join-Path ${env:ProgramFiles(x86)} "LiuZX\SKF Service\config\skf.yaml"
@@ -76,9 +82,9 @@ Write-Host "device='$device' app='$app' container='$container'"
 Write-Host ""
 
 $pin = Send-Rpc $ws "CheckPIN" @("$Provider/$device/$app", $Pin) 10
-if ($pin.error -ne 0) { throw "CheckPIN failed: $(Brief $pin)" }
+if ([int]$pin.error -ne 0) { throw "CheckPIN failed: $(Brief $pin)" }
 $before = Send-Rpc $ws "SignData" @($certKey, $digest) 11
-if ($before.error -ne 0) { throw "baseline SignData failed: $(Brief $before)" }
+if ([int]$before.error -ne 0) { throw "baseline SignData failed: $(Brief $before)" }
 Write-Host "authorized and signing works."
 
 Read-Host "PHYSICALLY REMOVE the token now, then press Enter"
