@@ -86,6 +86,7 @@ pub const CLASSIFIED_METHODS: &[(&str, OperationClass)] = &[
     ("DigestUpdate", OperationClass::ReadOnly),
     ("DigestFinal", OperationClass::ReadOnly),
     ("CloseHash", OperationClass::ReadOnly),
+    ("GetProtocolVersion", OperationClass::ReadOnly),
 ];
 
 /// Methods that are present but may be restricted for safety in a deployment.
