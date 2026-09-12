@@ -197,3 +197,20 @@ response:
   It is listed in `tests/common/mod.rs::ADDITIVE_METHODS` and has **no** v0.2.0
   fixture, because it did not exist when the fixtures were recorded. The
   completeness test asserts that it does not acquire one by accident.
+
+## Shape-checked methods (environment-dependent, not value-compared)
+
+Two methods are asserted by shape rather than by value because their recorded
+payload depends on the host, not on the service's contract:
+
+- `WaitForDevEvent` — timing-sensitive (the cancel must arrive while the waiter is
+  blocked), so only "answered with valid JSON" is checked.
+- `IssueCertificate` — a **documented Mock** capability that shells out to
+  OpenSSL. Its failure text tracks the installed OpenSSL version: the recording
+  host had no `-force_pubkey`, while a host that does fails later. The response is
+  checked for an integer `error` and a matching `id`; the message is not compared.
+  The service code path is unchanged, and `IssueCertificate` remains out of scope
+  for production certificates (see `RELEASE-NOTES.md`).
+
+Neither exemption touches `normalize`: the 34 other fixtures are still compared
+value-for-value.
