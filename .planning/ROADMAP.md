@@ -116,7 +116,7 @@ Plans:
 
 Plans:
 - [x] 06-01: TBD
-- [ ] 06-02: TBD
+- [x] 06-02: TBD
 - [ ] 06-03: TBD
 
 ## Progress

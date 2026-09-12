@@ -62,13 +62,13 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 - [x] **OBS-01**: Service logs are structured, leveled, and written to a rotating file with bounded retention
 - [x] **OBS-02**: No log output contains PIN values, private keys, session keys, or decrypted payloads
-- [ ] **OBS-03**: Operator can run a local diagnostic reporting whether config loaded, provider resolved, library file present, library loaded, and listener bound
-- [ ] **OBS-04**: The diagnostic reports only non-sensitive, non-identifying facts (stage booleans, provider alias, ports, uptime, error class)
+- [x] **OBS-03**: Operator can run a local diagnostic reporting whether config loaded, provider resolved, library file present, library loaded, and listener bound
+- [x] **OBS-04**: The diagnostic reports only non-sensitive, non-identifying facts (stage booleans, provider alias, ports, uptime, error class)
 
 ### Compatibility and Release (REL)
 
-- [ ] **REL-01**: The protocol accepts a version indicator and existing v0.2.0 clients continue to work unmodified
-- [ ] **REL-02**: Methods restricted for safety remain present and return a documented error instead of disappearing
+- [x] **REL-01**: The protocol accepts a version indicator and existing v0.2.0 clients continue to work unmodified
+- [x] **REL-02**: Methods restricted for safety remain present and return a documented error instead of disappearing
 - [ ] **REL-03**: The Windows release ZIP ships with a SHA-256 checksum file
 - [ ] **REL-04**: The release workflow verifies extracted package contents and that both the executable and the GM3000 DLL are PE32/i386 (`Machine=0x014C`)
 - [ ] **REL-05**: Release notes document every intentional behavior change and its migration path
@@ -165,10 +165,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SVC-05 | Phase 5 | Complete |
 | OBS-01 | Phase 6 | Complete |
 | OBS-02 | Phase 6 | Complete |
-| OBS-03 | Phase 6 | Pending |
-| OBS-04 | Phase 6 | Pending |
-| REL-01 | Phase 6 | Pending |
-| REL-02 | Phase 6 | Pending |
+| OBS-03 | Phase 6 | Complete |
+| OBS-04 | Phase 6 | Complete |
+| REL-01 | Phase 6 | Complete |
+| REL-02 | Phase 6 | Complete |
 | REL-03 | Phase 6 | Pending |
 | REL-04 | Phase 6 | Pending |
 | REL-05 | Phase 6 | Pending |
