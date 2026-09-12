@@ -103,7 +103,11 @@ and B5 and prints per-item PASS/FAIL. B2/B6/B7/B8 are printed as manual steps.
 
 - [ ] **B1 — session isolation.** Connection A: `CheckPIN` succeeds. Connection B
       (separate client): `SignData` must be rejected with `-10`, not signed. (SESS-02)
-- [ ] **B2 — device-removal invalidation.** A authorizes, then physically remove
+- [x] **B2 — device-removal invalidation.** ⚠️ **v0.3.0 FAILED this check**: after
+      removing the token, `SignData` failed with `ConnectDev failed: 0x00000001`
+      but the grant survived, so a re-insert still signed. Fixed in **v0.3.1** by
+      clearing the device's grants on a `ConnectDev` failure; re-verify with
+      `packaging/windows/uat-b2.ps1` against v0.3.1. Original description: A authorizes, then physically remove
       the token; A's next sensitive operation must fail with device-not-found and
       the grant must be cleared (re-inserting still requires `CheckPIN`). (SESS-04b)
 - [x] **B3 — no PIN retained.** ✅ Automated: `Grant` holds only an `Instant`
@@ -162,7 +166,7 @@ and B5 and prints per-item PASS/FAIL. B2/B6/B7/B8 are printed as manual steps.
 | Area | Owner | Date | Result |
 |------|-------|------|--------|
 | A. Windows lifecycle | operator (Win10 x64 VM) | 2026-09-12 | **PASS** — A1–A7 + A2 observed; `uat-v030.ps1` reported `Total: 4 Failed: 0` |
-| B. Real GM3000 | | | **PENDING** — needs the token + driver in the VM |
+| B. Real GM3000 | operator (Win10 x64 VM) | 2026-09-12 | B1/B4/B5/B3 **PASS** (v0.3.0); **B2 exposed a real gap** fixed in v0.3.1 — re-verification pending; B6/B7/B8 remain manual |
 | C. Release pipeline | CI + operator | 2026-09-12 | C1/C2/C3 **PASS** |
 | D. Contract / CI | CI + dev host | 2026-09-12 | **PASS** — D1 (37/37 locally), D2 (hosted CI green), D3 (protection applied), D4 (red PR blocked) |
 

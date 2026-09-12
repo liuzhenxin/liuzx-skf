@@ -71,6 +71,11 @@ impl SignData {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -78,7 +83,7 @@ impl SignData {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
@@ -208,6 +213,11 @@ impl RSASignData {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -215,7 +225,7 @@ impl RSASignData {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
@@ -336,6 +346,11 @@ impl EncryptData {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -343,7 +358,7 @@ impl EncryptData {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
@@ -489,6 +504,11 @@ impl DecryptData {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -496,7 +516,7 @@ impl DecryptData {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
@@ -616,6 +636,11 @@ impl CreatePKCS10 {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -623,7 +648,7 @@ impl CreatePKCS10 {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
@@ -892,7 +917,7 @@ mod tests {
     use crate::domain::test_support::TestContext;
     use crate::provider::fake::FakeSkfProvider;
     use crate::provider::{Operation, SkfError};
-    use crate::session::auth::AuthKey;
+    use crate::session::auth::{AuthKey, AuthRejection};
     use crate::session::SessionState;
 
     use super::*;
@@ -916,6 +941,28 @@ mod tests {
             "application"
         );
         assert_eq!(fake.call_count(Operation::CloseContainer), 1, "container");
+    }
+
+    /// Regression for the B2 device-removal finding: when `ConnectDev` fails
+    /// because the device is gone, this session's grants for it must be cleared,
+    /// so a re-insert still requires CheckPIN (SESS-04b). Previously only the
+    /// `open_application` failure cleared them.
+    #[tokio::test]
+    async fn sign_data_open_device_failure_clears_the_grant() {
+        let fake = Arc::new(FakeSkfProvider::new("FAKE"));
+        let ctx = TestContext::new(fake.clone());
+        let mut state = authorized_state();
+        fake.fail_next(Operation::OpenDevice, SkfError::DeviceRemoved);
+
+        let p = params(vec![json!("FAKE/dev-a/app-a/cnt-a"), json!("aGVsbG8=")]);
+        let response = SignData::handle(&ctx, &mut state, &p, &Language::EN);
+
+        assert_ne!(response.error, 0, "the operation must fail");
+        assert_eq!(
+            state.authorize(&AuthKey::new("FAKE", "dev-a", "app-a")),
+            Err(AuthRejection::NotAuthorized),
+            "a ConnectDev failure must clear the device's grants"
+        );
     }
 
     /// The fake reports container type 1 (RSA), so `SignData` takes the RSA path.
