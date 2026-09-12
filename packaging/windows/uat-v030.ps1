@@ -42,14 +42,18 @@ function Step([string]$Id, [scriptblock]$Body) {
     catch { Record $Id $false $_.Exception.Message }
 }
 
+# Windows PowerShell 5.1 defaults to TLS 1.0; GitHub requires TLS 1.2.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$ProgressPreference = 'SilentlyContinue'
+
 if (Test-Path $Work) { Remove-Item $Work -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 
 # --- C2: obtain and verify the released artifact ----------------------------
 $zip = if ($ZipPath) { $ZipPath } else { Join-Path $Work "skf.zip" }
 if (-not $ZipPath) {
-    Invoke-WebRequest "$ReleaseBase" -OutFile $zip
-    Invoke-WebRequest "$ReleaseBase.sha256" -OutFile "$zip.sha256"
+    Invoke-WebRequest -UseBasicParsing "$ReleaseBase" -OutFile $zip
+    Invoke-WebRequest -UseBasicParsing "$ReleaseBase.sha256" -OutFile "$zip.sha256"
 }
 if (Test-Path "$zip.sha256") {
     Step "C2" {
