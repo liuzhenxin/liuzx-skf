@@ -40,21 +40,20 @@ jobs:
         run: cargo test --lib
       - name: Invariant suites
         run: cargo test --test provider_invariants --test session_invariants --test classification_invariants --test fixture_oracle
+      # Fixture completeness/shape checks that do not need the running service.
+      # The value replay itself starts the binary and needs the vendor
+      # middleware, so it is a local/pre-release check (see docs/CI.md).
+      - name: Fixture structural checks
+        run: cargo test --test contract_fixtures fixture_count_is_at_least_37 && cargo test --test contract_fixtures every_expected_method_has_a_fixture
       - name: Integration suites that do not need the vendor library
         run: cargo test --test session_isolation --test session_lifecycle --test transport_limits --test ffi_serialization --test loopback_gate
 
-  test-full:
-    name: Full suite incl. contract replay (x86_64 macOS)
-    # The frozen contract replay starts the real binary and loads the committed
-    # x86_64 vendor dylib (native/GM3000/macos/x86_64/libgm3000.1.0.dylib). A Linux
-    # runner lacks the Linux .so and an arm64 runner cannot load the x86_64 dylib,
-    # so this job must run on an x86_64 macOS image. `macos-13` was retired by
-    # GitHub; `macos-15-intel` is the current Intel macOS label.
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-      - name: cargo test
-        run: cargo test
+  # NOTE: the frozen v0.2.0 contract replay (`cargo test --test contract_fixtures`)
+  # is intentionally NOT a hosted job. It needs the GM3000 macOS *middleware*
+  # installed, not just the committed dylib: a hosted macOS runner loads the dylib
+  # but every ConnectDev returns 0x00000001 instead of the recorded 0x0A000023.
+  # Run it locally or on a self-hosted x86_64 macOS runner before a release. The
+  # structural fixture checks and the fixture oracle still run here.
 
   windows-i686:
     name: Windows i686 compile check

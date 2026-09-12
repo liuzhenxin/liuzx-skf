@@ -9,8 +9,7 @@ pushes to `main` and `dev`.
 |-----|--------|---------|-----|
 | `fmt` | ubuntu-latest | `cargo fmt --all -- --check` | Keeps the tree rustfmt-clean (QUAL-01) |
 | `clippy` | ubuntu-latest | `cargo clippy --all-targets -- -D warnings` | Warnings are hard failures (QUAL-02) |
-| `test` | ubuntu-latest | `cargo test --lib` and the invariant/no-vendor integration suites | Fast hardware-free signal |
-| `test-full` | x86_64 macOS (`macos-15-intel`) | `cargo test` | The authoritative suite, including the frozen contract replay |
+| `test` | ubuntu-latest | `cargo test --lib`, invariant suites, fixture structural checks, and the vendor-free integration suites | Fast hardware-free signal |
 | `windows-i686` | ubuntu-latest | `cargo check --target i686-pc-windows-gnu` | Guards the PE32/i386 constraint |
 | `gate-selftest` | ubuntu-latest | writes a failing test, asserts `cargo test` exits non-zero | Proves the gate is failure-sensitive (QUAL-04) |
 
@@ -31,21 +30,34 @@ The i686 check needs the target once:
 rustup target add i686-pc-windows-gnu
 ```
 
-## Why the contract replay needs x86_64 macOS
+## The contract replay is a local/pre-release check, not a hosted job
 
 `tests/contract_fixtures.rs` starts the real binary and replays the 37 frozen
-v0.2.0 fixtures. The binary loads the vendor middleware
-`native/GM3000/macos/x86_64/libgm3000.1.0.dylib` (committed, x86_64).
+v0.2.0 fixtures. That replay needs the GM3000 macOS **middleware** installed — not
+just the committed dylib:
 
-- A Linux runner resolves the config to `native/GM3000/linux/libgm3000.1.0.so`,
-  which is not committed, so the provider falls back to `UnavailableProvider` and
-  every fixture that expects `ConnectDev failed: 0x0A000023` drifts.
-- An arm64 macOS runner cannot load the x86_64 dylib into a freshly built arm64
-  test binary.
+- On a runner that has the dylib but not the driver/middleware stack, the library
+  loads and every `ConnectDev` returns `0x00000001`, whereas the fixtures recorded
+  `0x0A000023` on a machine with the middleware. Confirmed on a hosted
+  `macos-15-intel` runner (see the v0.3.0 CI run).
+- A Linux runner resolves the config to `native/GM3000/linux/libgm3000.1.0.so`
+  (not committed) and falls back to `UnavailableProvider`, which drifts for the
+  same reason.
 
-Therefore `test-full` pins an x86_64 macOS image (`macos-15-intel`; `macos-13`
-was retired by GitHub). If that label is unavailable, pick another x86_64 macOS
-label.
+Widening `normalize` (or editing the fixtures) to absorb this would erase a real
+assertion, so it is not an option.
+
+**Before a release, run the replay on a machine with the vendor middleware:**
+
+```bash
+cargo test --test contract_fixtures   # 37/37 expected
+```
+
+Hosted CI still runs the fixture **structural** checks
+(`fixture_count_is_at_least_37`, `every_expected_method_has_a_fixture`) and the
+`fixture_oracle` self-test, so a dropped method or a broken oracle is caught there.
+A self-hosted x86_64 macOS runner with the middleware could restore the full
+replay as a hosted job.
 
 ## Branch protection (required, set in GitHub, not in this repository)
 
