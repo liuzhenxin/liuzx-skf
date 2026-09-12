@@ -84,7 +84,7 @@ Plans:
 
 Plans:
 - [x] 04-01: TBD
-- [ ] 04-02: TBD
+- [x] 04-02: TBD
 
 ### Phase 5: Windows Service Reliability
 **Goal**: 让 Windows 服务如实反映自身可用性，并让安装、升级、卸载在权限与清理上可靠。
