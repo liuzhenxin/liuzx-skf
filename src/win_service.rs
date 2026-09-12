@@ -300,9 +300,16 @@ fn run_service() -> Result<()> {
     };
 
     report(ServiceState::StartPending, 0, ServiceExitCode::NO_ERROR);
+    // Record when initialization began so `diagnose` can report uptime.
+    let started_at = now_seconds();
     let _ = service_state::write_atomic(
         &state_path,
-        &ServiceStatusFile::pending(StartupStage::Config, Some(pid), now_seconds()),
+        &ServiceStatusFile::pending(
+            StartupStage::Config,
+            Some(pid),
+            now_seconds(),
+            Some(&started_at),
+        ),
     );
 
     let checkpoint = std::cell::Cell::new(0u32);
@@ -314,7 +321,7 @@ fn run_service() -> Result<()> {
         checkpoint.set(checkpoint.get() + 1);
         let _ = service_state::write_atomic(
             &state_path,
-            &ServiceStatusFile::pending(stage, Some(pid), now_seconds()),
+            &ServiceStatusFile::pending(stage, Some(pid), now_seconds(), Some(&started_at)),
         );
         report(
             ServiceState::StartPending,
@@ -348,6 +355,7 @@ fn run_service() -> Result<()> {
                         short_reason(&e.to_string()),
                         Some(pid),
                         now_seconds(),
+                        Some(&started_at),
                     ),
                 );
                 report(
@@ -362,7 +370,7 @@ fn run_service() -> Result<()> {
         let address = bound.ws_addr.to_string();
         let _ = service_state::write_atomic(
             &state_path,
-            &ServiceStatusFile::running(&address, Some(pid), now_seconds()),
+            &ServiceStatusFile::running(&address, Some(pid), now_seconds(), Some(&started_at)),
         );
         report(ServiceState::Running, 0, ServiceExitCode::NO_ERROR);
         log::info!(
@@ -379,7 +387,7 @@ fn run_service() -> Result<()> {
             Ok(()) => {
                 let _ = service_state::write_atomic(
                     &state_path,
-                    &ServiceStatusFile::stopped(now_seconds()),
+                    &ServiceStatusFile::stopped(now_seconds(), Some(&started_at)),
                 );
                 report(ServiceState::Stopped, 0, ServiceExitCode::NO_ERROR);
                 Ok(())
@@ -393,6 +401,7 @@ fn run_service() -> Result<()> {
                         short_reason(&e.to_string()),
                         Some(pid),
                         now_seconds(),
+                        Some(&started_at),
                     ),
                 );
                 report(

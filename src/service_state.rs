@@ -101,11 +101,19 @@ pub struct ServiceStatusFile {
     pub address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated: Option<String>,
+    /// Unix epoch seconds of the first `StartPending` write; used for uptime.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
 }
 
 impl ServiceStatusFile {
     /// Initializing in `stage`.
-    pub fn pending(stage: StartupStage, pid: Option<u32>, updated: impl Into<String>) -> Self {
+    pub fn pending(
+        stage: StartupStage,
+        pid: Option<u32>,
+        updated: impl Into<String>,
+        started_at: Option<&str>,
+    ) -> Self {
         Self {
             state: ServiceState::StartPending,
             stage,
@@ -114,6 +122,7 @@ impl ServiceStatusFile {
             pid,
             address: None,
             updated: Some(updated.into()),
+            started_at: started_at.map(str::to_string),
         }
     }
 
@@ -122,6 +131,7 @@ impl ServiceStatusFile {
         address: impl Into<String>,
         pid: Option<u32>,
         updated: impl Into<String>,
+        started_at: Option<&str>,
     ) -> Self {
         Self {
             state: ServiceState::Running,
@@ -131,6 +141,7 @@ impl ServiceStatusFile {
             pid,
             address: Some(address.into()),
             updated: Some(updated.into()),
+            started_at: started_at.map(str::to_string),
         }
     }
 
@@ -144,6 +155,7 @@ impl ServiceStatusFile {
         reason: impl Into<String>,
         pid: Option<u32>,
         updated: impl Into<String>,
+        started_at: Option<&str>,
     ) -> Self {
         Self {
             state: ServiceState::Failed,
@@ -153,11 +165,12 @@ impl ServiceStatusFile {
             pid,
             address: None,
             updated: Some(updated.into()),
+            started_at: started_at.map(str::to_string),
         }
     }
 
     /// Clean shutdown.
-    pub fn stopped(updated: impl Into<String>) -> Self {
+    pub fn stopped(updated: impl Into<String>, started_at: Option<&str>) -> Self {
         Self {
             state: ServiceState::Stopped,
             stage: StartupStage::Serve,
@@ -166,6 +179,7 @@ impl ServiceStatusFile {
             pid: None,
             address: None,
             updated: Some(updated.into()),
+            started_at: started_at.map(str::to_string),
         }
     }
 }
@@ -218,6 +232,7 @@ mod tests {
             "address already in use",
             Some(42),
             "2026-09-11T00:00:00Z",
+            Some("2026-09-11T00:00:00Z"),
         );
         write_atomic(&path, &value).expect("write");
         let back = read(&path).expect("read");
@@ -230,12 +245,12 @@ mod tests {
         let path = temp_path("atomic");
         write_atomic(
             &path,
-            &ServiceStatusFile::pending(StartupStage::Config, Some(1), "t1"),
+            &ServiceStatusFile::pending(StartupStage::Config, Some(1), "t1", Some("t0")),
         )
         .expect("first write");
         write_atomic(
             &path,
-            &ServiceStatusFile::running("127.0.0.1:9001", Some(1), "t2"),
+            &ServiceStatusFile::running("127.0.0.1:9001", Some(1), "t2", Some("t0")),
         )
         .expect("second write");
 
@@ -258,6 +273,7 @@ mod tests {
             "provider not configured",
             Some(7),
             "2026-09-11T00:00:00Z",
+            None,
         );
         let json = serde_json::to_string(&value).expect("serialize");
         assert!(!json.contains(secret_path), "status file leaked a path");
@@ -265,6 +281,18 @@ mod tests {
         // The fields that ARE allowed:
         assert!(json.contains("provider"));
         assert!(json.contains("1")); // EXIT_PROVIDER
+    }
+
+    #[test]
+    fn started_at_is_preserved_across_states() {
+        let pending = ServiceStatusFile::pending(StartupStage::Config, Some(1), "t1", Some("t0"));
+        let running = ServiceStatusFile::running(
+            "127.0.0.1:9001",
+            Some(1),
+            "t2",
+            pending.started_at.as_deref(),
+        );
+        assert_eq!(running.started_at.as_deref(), Some("t0"));
     }
 
     #[test]
