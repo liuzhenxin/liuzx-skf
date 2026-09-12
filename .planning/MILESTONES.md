@@ -13,7 +13,17 @@
 - Released ZIP SHA-256 independently verified on the VM.
 - GitHub Release v0.3.0 published with the ZIP and checksum; `dev`/`main` CI green;
   branch protection on `main` requires the five CI checks.
-- Remaining before "production-verified": real GM3000 hardware UAT (checklist B).
+- Real GM3000 hardware UAT (checklist B) on the Windows 10 x64 VM: B1 session
+  isolation, B2 device-removal invalidation, B3 no-PIN-retained (structural),
+  B4 concurrent signing, B5 slow-op isolation all PASS. B2 exposed a real gap on
+  v0.3.0 (a `ConnectDev` failure did not clear the grant); fixed in **v0.3.1** and
+  re-verified on hardware (`SignData after re-insert -> -10`). B6/B7 are covered by
+  automated tests; B8 awaits vendor documentation.
+- v0.3.1 released (ZIP + SHA-256) and merged to `main` (PR #3).
+
+**Status: production-verified for the tested matrix.** Remaining advisory: B6/B7
+real-hardware variants, B8 vendor docs, and the phase 3-6 Nyquist VALIDATION
+sign-off.
 
 **Key accomplishments:**
 
