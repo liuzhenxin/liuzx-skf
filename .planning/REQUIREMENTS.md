@@ -52,11 +52,11 @@ Requirements for milestone v0.3.0 Production Hardening. Each maps to exactly one
 
 ### Windows Service Reliability (SVC)
 
-- [ ] **SVC-01**: The service reports StartPending while initializing and Running only after the WebSocket listener is bound and the configured provider is resolved
-- [ ] **SVC-02**: An initialization failure exits with a distinct non-zero service exit code so the configured restart-on-failure action actually triggers
+- [x] **SVC-01**: The service reports StartPending while initializing and Running only after the WebSocket listener is bound and the configured provider is resolved
+- [x] **SVC-02**: An initialization failure exits with a distinct non-zero service exit code so the configured restart-on-failure action actually triggers
 - [ ] **SVC-03**: The installer applies restrictive permissions to the install directory so a non-administrator cannot replace the loaded executable or DLL
 - [ ] **SVC-04**: Operator can install, run, upgrade over a running installation, and uninstall without leaving a stale service registration or locked files
-- [ ] **SVC-05**: `status` distinguishes "process running" from "service usable" by reporting the failing or completed startup stage
+- [x] **SVC-05**: `status` distinguishes "process running" from "service usable" by reporting the failing or completed startup stage
 
 ### Observability and Diagnostics (OBS)
 
@@ -158,11 +158,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | QUAL-02 | Phase 4 | Complete |
 | QUAL-03 | Phase 4 | Complete |
 | QUAL-04 | Phase 4 | Complete |
-| SVC-01 | Phase 5 | Pending |
-| SVC-02 | Phase 5 | Pending |
+| SVC-01 | Phase 5 | Complete |
+| SVC-02 | Phase 5 | Complete |
 | SVC-03 | Phase 5 | Pending |
 | SVC-04 | Phase 5 | Pending |
-| SVC-05 | Phase 5 | Pending |
+| SVC-05 | Phase 5 | Complete |
 | OBS-01 | Phase 6 | Pending |
 | OBS-02 | Phase 6 | Pending |
 | OBS-03 | Phase 6 | Pending |
