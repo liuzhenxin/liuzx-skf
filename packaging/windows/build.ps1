@@ -90,6 +90,7 @@ foreach ($Name in @(
     "uninstall.bat",
     "uninstall.ps1",
     "verify-service.ps1",
+    "uat-v030.ps1",
     "README-Windows-x86_64.md"
 )) {
     Copy-Item (Join-Path $PSScriptRoot $Name) -Destination $Dist -Force
