@@ -88,6 +88,19 @@ Paste the full output back and it can be interpreted against the checklist items
 
 Use `config\skf.yaml` pointed at a real GM3000, and a real PIN.
 
+### Scripted checks (B1/B4/B5)
+
+With the service installed and the token attached to the **service** (not just the
+console session):
+
+```powershell
+curl.exe -L -o uat-token.ps1 https://raw.githubusercontent.com/liuzhenxin/liuzx-skf/dev/packaging/windows/uat-token.ps1
+powershell -ExecutionPolicy Bypass -File .\uat-token.ps1
+```
+
+It prompts for the PIN, discovers device/application/container, then runs B1, B4
+and B5 and prints per-item PASS/FAIL. B2/B6/B7/B8 are printed as manual steps.
+
 - [ ] **B1 — session isolation.** Connection A: `CheckPIN` succeeds. Connection B
       (separate client): `SignData` must be rejected with `-10`, not signed. (SESS-02)
 - [ ] **B2 — device-removal invalidation.** A authorizes, then physically remove
