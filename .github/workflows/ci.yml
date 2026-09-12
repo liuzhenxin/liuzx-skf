@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rustup reads rust-toolchain.toml, so the pinned 1.93.0 and its rustfmt
+      # component are installed automatically.
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run clippy with warnings denied
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Hardware-free tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Library and invariant tests
+        run: cargo test --lib
+      - name: Invariant suites
+        run: cargo test --test provider_invariants --test session_invariants --test classification_invariants --test fixture_oracle
+      - name: Integration suites that do not need the vendor library
+        run: cargo test --test session_isolation --test session_lifecycle --test transport_limits --test ffi_serialization --test loopback_gate
+
+  test-full:
+    name: Full suite incl. contract replay (x86_64 macOS)
+    # The frozen contract replay starts the real binary and loads the committed
+    # x86_64 vendor dylib (native/GM3000/macos/x86_64/libgm3000.1.0.dylib). A Linux
+    # runner lacks the Linux .so and an arm64 runner cannot load the x86_64 dylib,
+    # so this job must run on an x86_64 macOS image.
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo test
+        run: cargo test
+
+  windows-i686:
+    name: Windows i686 compile check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: Add i686 target
+        run: rustup target add i686-pc-windows-gnu
+      - name: cargo check --target i686-pc-windows-gnu
+        run: cargo check --target i686-pc-windows-gnu
+
+  gate-selftest:
+    name: Gate self-test (a failing test must be caught)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Proves the test gate is failure-sensitive: a deliberately failing test must
+      # make the gate command exit non-zero. The job itself passes because it
+      # asserts that failure.
+      - name: Prove the test gate fails on a failing test
+        run: |
+          printf '#[test]\nfn deliberate_failure() { assert!(false); }\n' > tests/ci_selftest.rs
+          if cargo test --test ci_selftest; then
+            echo "::error::the test gate did not fail on a deliberately failing test"
+            rm -f tests/ci_selftest.rs
+            exit 1
+          fi
+          rm -f tests/ci_selftest.rs
+          echo "gate is failure-sensitive"
