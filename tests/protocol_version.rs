@@ -21,7 +21,8 @@ async fn get_protocol_version_reports_service_version() {
     assert_eq!(response["result"]["min"], 1);
     assert_eq!(response["result"]["current"], 1);
     assert_eq!(
-        response["result"]["service"], "0.3.0",
+        response["result"]["service"],
+        env!("CARGO_PKG_VERSION"),
         "the reported service version must be the crate version"
     );
 }

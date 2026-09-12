@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.3.1 — device-removal authorization fix
+
+**Fix:** when an operation failed at `ConnectDev` (the device was physically gone),
+the session's authorization grant for that device was **not** cleared; only an
+`OpenApplication` failure cleared it. A token removed and re-inserted therefore
+allowed a signed operation without a new `CheckPIN`, violating SESS-04b.
+
+- All migrated handlers and the remaining auth-gated `ImportKeyPair` branch now
+  clear the device's grants whenever `ConnectDev` fails.
+- Responses are unchanged for every other path; the 37 v0.2.0 fixtures are intact.
+- Regression test: `domain::crypto::tests::sign_data_open_device_failure_clears_the_grant`
+  (fake-injected `DeviceRemoved`), plus the interactive
+  `packaging/windows/uat-b2.ps1` on real hardware.
+
+Found by the Windows v0.3.0 UAT (B2). Upgrade from v0.3.0 is a drop-in binary
+replacement; no API change.
+
 ## v0.3.0 — production hardening
 
 v0.3.0 hardens the SKF gateway: session-scoped authorization, opaque resource

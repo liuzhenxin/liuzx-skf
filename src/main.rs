@@ -695,6 +695,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -761,6 +764,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -1355,6 +1361,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -1719,6 +1728,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -1822,6 +1834,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -1978,6 +1993,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -2063,6 +2081,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, prov_name, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -2131,6 +2152,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -2177,6 +2201,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -2233,6 +2260,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),
@@ -2352,6 +2382,9 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
+                // The device is gone; drop this session's grants for it so a
+                // re-insert still requires CheckPIN (SESS-04b).
+                device_unavailable(state, provider, dev_name);
                 return RpcResponse::err(
                     ret as i32,
                     format!("ConnectDev failed: 0x{:08X}", ret),

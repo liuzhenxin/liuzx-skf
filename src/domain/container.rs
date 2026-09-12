@@ -55,6 +55,11 @@ impl CreateContainer {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -62,7 +67,7 @@ impl CreateContainer {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
@@ -114,7 +119,7 @@ pub struct DeleteContainer;
 impl DeleteContainer {
     pub fn handle(
         ctx: &dyn ServerContext,
-        _state: &mut SessionState,
+        state: &mut SessionState,
         params: &Params<'_>,
         lang: &Language,
     ) -> RpcResponse {
@@ -144,6 +149,11 @@ impl DeleteContainer {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -151,14 +161,14 @@ impl DeleteContainer {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
         let application = match device.open_application(app_name) {
             Ok(a) => a,
             Err(e) => {
-                note_device_unavailable(_state, prov_name, dev_name);
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -221,6 +231,11 @@ impl GetContainerType {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -228,7 +243,7 @@ impl GetContainerType {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
@@ -346,6 +361,11 @@ impl ImportCertificate {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -353,7 +373,7 @@ impl ImportCertificate {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 

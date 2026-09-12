@@ -58,6 +58,11 @@ impl CheckPIN {
         let device = match provider.open_device(dev_name) {
             Ok(d) => d,
             Err(e) => {
+                // The device is gone (or unusable): this session's grants for it
+                // must not survive. Previously only the open_application failure
+                // cleared them, so a removal was missed when ConnectDev failed
+                // first (found by the B2 device-removal UAT).
+                note_device_unavailable(state, prov_name, dev_name);
                 return match native_code(&e) {
                     Some(code) => RpcResponse::err(
                         code as i32,
@@ -65,7 +70,7 @@ impl CheckPIN {
                         id,
                     ),
                     None => load_failed(e.to_string(), id),
-                }
+                };
             }
         };
 
