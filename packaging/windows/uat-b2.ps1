@@ -87,13 +87,27 @@ $before = Send-Rpc $ws "SignData" @($certKey, $digest) 11
 if ([int]$before.error -ne 0) { throw "baseline SignData failed: $(Brief $before)" }
 Write-Host "authorized and signing works."
 
-Read-Host "PHYSICALLY REMOVE the token now, then press Enter"
-Start-Sleep 2
+Read-Host "PHYSICALLY REMOVE the token now (detach it from the VM if needed), then press Enter"
+Start-Sleep 3
+$enum = (Send-Rpc $ws "EnumDevice" @() 20).result
+$devState = Send-Rpc $ws "GetDevState" @($Provider, $device) 21
+Write-Host ("EnumDevice after removal -> {0}" -f (Brief $enum))
+Write-Host ("GetDevState('{0}') after removal -> {1}" -f $device, (Brief $devState))
+if ($enum -and @($enum).Count -gt 0) {
+    Write-Host ""
+    Write-Host "[WARN] B2 INCONCLUSIVE: the service still enumerates a device after removal."
+    Write-Host "       The token is still attached to the VM. Detach the USB key from the VM"
+    Write-Host "       (Parallels > Devices > USB & Bluetooth) or unplug it, then re-run."
+    exit 2
+}
+
 $removed = Send-Rpc $ws "SignData" @($certKey, $digest) 12
 Write-Host ("SignData while removed -> {0}" -f (Brief $removed))
 
 Read-Host "RE-INSERT the token now, then press Enter"
 Start-Sleep 3
+$enum2 = (Send-Rpc $ws "EnumDevice" @() 22).result
+if (-not $enum2) { Write-Host "re-inserted device not visible yet; waiting..."; Start-Sleep 4 }
 $after = Send-Rpc $ws "SignData" @($certKey, $digest) 13
 Write-Host ("SignData after re-insert -> {0}" -f (Brief $after))
 
