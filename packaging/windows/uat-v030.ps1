@@ -85,21 +85,48 @@ Step "A1/A5/A6/A7" {
 # --- A3: invalid configuration is fatal -------------------------------------
 Step "A3" {
     & (Join-Path $pkg "install.ps1") | Out-Host
+    # Wait for the valid-config service to be Running before perturbing it.
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        $s = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($s -and $s.Status -eq 'Running') { break }
+        Start-Sleep -Milliseconds 300
+    }
+
     $cfg = Join-Path $InstallDir "config\skf.yaml"
     Copy-Item $cfg "$cfg.bak" -Force
     try {
         (Get-Content $cfg) -replace '^default:.*', 'default: NOPE' | Set-Content $cfg
-        sc.exe stop $ServiceName | Out-Null; Start-Sleep 2
-        sc.exe start $ServiceName | Out-Null; Start-Sleep 3
+
+        # Stop and WAIT until Stopped, otherwise the next start is a no-op and
+        # the process keeps the old (valid) configuration.
+        sc.exe stop $ServiceName | Out-Null
+        $deadline = (Get-Date).AddSeconds(30)
+        while ((Get-Date) -lt $deadline) {
+            $s = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+            if (-not $s -or $s.Status -eq 'Stopped') { break }
+            Start-Sleep -Milliseconds 300
+        }
+
+        sc.exe start $ServiceName | Out-Null
+        $statePath = Join-Path $InstallDir "service-state.json"
+        $deadline = (Get-Date).AddSeconds(30)
+        $state = ""
+        while ((Get-Date) -lt $deadline) {
+            if (Test-Path $statePath) { $state = Get-Content $statePath | Out-String }
+            if ($state -match '"state":\s*"failed"') { break }
+            Start-Sleep -Milliseconds 500
+        }
         $svc = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'"
-        $state = Get-Content (Join-Path $InstallDir "service-state.json") | Out-String
-        Write-Host "service ExitCode=$($svc.ExitCode)"
+        Write-Host "service State=$($svc.State) ExitCode=$($svc.ExitCode)"
         Write-Host $state
-        if (-not $svc.ExitCode -or $svc.ExitCode -eq 0) { throw "service exited with code 0, restart would not fire" }
+        if ($state -match '"state":\s*"running"') { throw "service reached Running with an invalid configuration" }
+        if (-not $svc.ExitCode -or $svc.ExitCode -eq 0) { throw "service exit code was 0; restart would not fire" }
         if ($state -notmatch '"state":\s*"failed"') { throw "status file did not record a failure" }
         if ($state -notmatch '"stage":\s*"provider"') { throw "status file did not record stage=provider" }
         if ($state -notmatch '"code":\s*2') { throw "status file did not record code=2" }
     } finally {
+        sc.exe stop $ServiceName | Out-Null
         Move-Item "$cfg.bak" $cfg -Force
     }
 }

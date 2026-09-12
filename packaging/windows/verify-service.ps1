@@ -31,17 +31,29 @@ function Fail([string]$Message) {
 }
 
 function Assert-ServiceRunning {
+    param([int]$TimeoutSeconds = 30)
+    # The SCM reports StartPending right after a start; poll until it settles.
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if (-not $svc) { Fail "service '$ServiceName' is not registered" }
+        if ($svc.Status -eq 'Running') { return }
+        Start-Sleep -Milliseconds 300
+    }
     $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if (-not $svc) { Fail "service '$ServiceName' is not registered" }
-    if ($svc.Status -ne 'Running') { Fail "service '$ServiceName' is $($svc.Status), expected Running" }
+    Fail "service '$ServiceName' did not reach Running within ${TimeoutSeconds}s (status=$($svc.Status))"
 }
 
-function Assert-StatusStage([string]$Expected) {
+function Assert-StatusStage([string]$Expected, [int]$TimeoutSeconds = 30) {
     if (-not (Test-Path $Exe)) { Fail "skf-service.exe missing at $Exe" }
-    $out = & $Exe status | Out-String
-    if ($out -notmatch [regex]::Escape($Expected)) {
-        Fail "status output did not contain '$Expected':`n$out"
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $last = ""
+    while ((Get-Date) -lt $deadline) {
+        $last = & $Exe status | Out-String
+        if ($last -match [regex]::Escape($Expected)) { return }
+        Start-Sleep -Milliseconds 300
     }
+    Fail "status output did not contain '$Expected' within ${TimeoutSeconds}s:`n$last"
 }
 
 function Invoke-Installer {
