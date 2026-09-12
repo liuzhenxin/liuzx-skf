@@ -22,7 +22,6 @@
 //! The SCM entry point (`service_dispatcher::start`) must be called from the
 //! main thread, which is why `run()` is invoked directly from `main()`.
 
-
 use std::ffi::OsString;
 use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;

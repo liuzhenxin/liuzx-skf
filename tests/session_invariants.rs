@@ -89,7 +89,8 @@ fn only_one_unsafe_send_sync_impl_exists() {
             .unwrap_or(&path)
             .display()
             .to_string();
-        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+        let text =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
         for _ in 0..count_code_occurrences(&text, "unsafe impl Send") {
             send_sites.push(relative.clone());
         }
@@ -228,7 +229,10 @@ fn session_ids_are_not_sent_to_clients() {
 fn session_guard_exposes_mutable_state_by_reference() {
     let registry = read("src/session/registry.rs");
     assert!(
-        count_code_occurrences(&registry, "pub fn state_mut(&mut self) -> &mut SessionState") == 1,
+        count_code_occurrences(
+            &registry,
+            "pub fn state_mut(&mut self) -> &mut SessionState"
+        ) == 1,
         "SessionGuard must expose `&mut SessionState`; anything else implies shared state"
     );
 }

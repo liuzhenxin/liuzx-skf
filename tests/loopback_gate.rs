@@ -77,8 +77,9 @@ async fn loopback_is_allowed_without_opt_in() {
     std::env::remove_var(SkfConfig::REMOTE_ENV);
     let opts = options(write_config(""), "127.0.0.1:0");
 
-    let (bound, _listener, _prepared) =
-        server::bind(&opts, &TestFactory).await.expect("loopback must bind");
+    let (bound, _listener, _prepared) = server::bind(&opts, &TestFactory)
+        .await
+        .expect("loopback must bind");
     assert!(
         bound.ws_addr.ip().is_loopback(),
         "bound address must be loopback: {}",

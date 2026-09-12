@@ -212,7 +212,10 @@ mod tests {
         let removed = table.invalidate_device("GM3000", "dev-a");
 
         assert_eq!(removed, 1);
-        assert_eq!(table.check(&AuthKey::new("GM3000", "dev-a", "app")), Err(AuthRejection::NotAuthorized));
+        assert_eq!(
+            table.check(&AuthKey::new("GM3000", "dev-a", "app")),
+            Err(AuthRejection::NotAuthorized)
+        );
         assert_eq!(table.check(&AuthKey::new("GM3000", "dev-b", "app")), Ok(()));
         assert_eq!(
             table.check(&AuthKey::new("Other", "dev-a", "app")),

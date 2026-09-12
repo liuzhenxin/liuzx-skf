@@ -125,8 +125,11 @@ pub fn resolve_lib_path(
     let raw_path = libs
         .get(provider)
         .and_then(|m| {
-            m.get(os)
-                .or_else(|| m.iter().find(|(k, _)| k.eq_ignore_ascii_case(os)).map(|(_, v)| v))
+            m.get(os).or_else(|| {
+                m.iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(os))
+                    .map(|(_, v)| v)
+            })
         })
         .ok_or_else(|| {
             let available_providers: Vec<_> = libs.keys().collect();
@@ -224,7 +227,10 @@ mod tests {
 
     #[test]
     fn expand_env_vars_keeps_unknown_variables_literal() {
-        assert_eq!(expand_env_vars("%SKF_DEFINITELY_UNSET_VAR%"), "%SKF_DEFINITELY_UNSET_VAR%");
+        assert_eq!(
+            expand_env_vars("%SKF_DEFINITELY_UNSET_VAR%"),
+            "%SKF_DEFINITELY_UNSET_VAR%"
+        );
     }
 
     #[test]
@@ -257,7 +263,10 @@ mod tests {
     fn resolve_lib_path_matches_os_key_case_insensitively() {
         let mut libs = HashMap::new();
         let mut platforms = HashMap::new();
-        platforms.insert("Windows".to_string(), "native\\GM3000\\windows\\mtoken_gm3000.dll".to_string());
+        platforms.insert(
+            "Windows".to_string(),
+            "native\\GM3000\\windows\\mtoken_gm3000.dll".to_string(),
+        );
         libs.insert("GM3000".to_string(), platforms);
 
         let exact = resolve_lib_path(&libs, "GM3000", "Windows").expect("exact match");
@@ -318,7 +327,9 @@ mod tests {
 
         let problems = validate(&config, "macos");
         assert!(
-            problems.iter().any(|p| p.contains("no path configured for OS 'macos'")),
+            problems
+                .iter()
+                .any(|p| p.contains("no path configured for OS 'macos'")),
             "expected a missing-path diagnostic, got {:?}",
             problems
         );
@@ -345,7 +356,8 @@ mod tests {
     fn yaml_allow_remote_true_opts_in() {
         let _guard = env_lock();
         std::env::remove_var(SkfConfig::REMOTE_ENV);
-        let yaml = "default: GM3000\nvendor: {}\nallow_remote: true\nGM3000:\n  macos: native/x.dylib\n";
+        let yaml =
+            "default: GM3000\nvendor: {}\nallow_remote: true\nGM3000:\n  macos: native/x.dylib\n";
         let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
         assert!(config.allows_remote());
         assert!(
@@ -382,7 +394,10 @@ mod tests {
             serde_yaml::from_str("default: GM3000\nvendor: {}\nGM3000:\n  macos: native/x.dylib\n")
                 .expect("parse");
         std::env::set_var(SkfConfig::REMOTE_ENV, "TRUE");
-        assert!(config.allows_remote(), "case-insensitive truthy value must opt in");
+        assert!(
+            config.allows_remote(),
+            "case-insensitive truthy value must opt in"
+        );
         std::env::remove_var(SkfConfig::REMOTE_ENV);
         assert!(!config.allows_remote());
     }
@@ -416,7 +431,11 @@ mod tests {
         };
 
         let problems = validate(&config, "macos");
-        assert!(problems.iter().any(|p| p.contains("default provider 'ABSENT'")));
-        assert!(problems.iter().any(|p| p.contains("unknown provider 'MISSING'")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("default provider 'ABSENT'")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("unknown provider 'MISSING'")));
     }
 }

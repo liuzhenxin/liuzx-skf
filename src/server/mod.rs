@@ -37,7 +37,7 @@ pub const MAX_WS_MESSAGE_BYTES: usize = 1024 * 1024;
 pub const MAX_CONNECTIONS: usize = 64;
 
 use crate::config::SkfConfig;
-use crate::provider::{SkfProvider, native::NativeSkfProvider};
+use crate::provider::{native::NativeSkfProvider, SkfProvider};
 
 /// Whether the process runs attached to a console or under the Windows SCM.
 ///
@@ -74,13 +74,13 @@ impl ServerOptions {
     pub fn from_env(mode: RunMode) -> Self {
         let config_path =
             std::env::var("SKF_CONFIG").unwrap_or_else(|_| "config/skf.yaml".to_string());
-        let ws_addr =
-            std::env::var("SKF_WS_ADDR").unwrap_or_else(|_| "127.0.0.1:9001".to_string());
+        let ws_addr = std::env::var("SKF_WS_ADDR").unwrap_or_else(|_| "127.0.0.1:9001".to_string());
         let default_http = match mode {
             RunMode::Console => "0.0.0.0:8000",
             RunMode::Service => "127.0.0.1:8000",
         };
-        let http_addr = Some(std::env::var("SKF_HTTP_ADDR").unwrap_or_else(|_| default_http.to_string()));
+        let http_addr =
+            Some(std::env::var("SKF_HTTP_ADDR").unwrap_or_else(|_| default_http.to_string()));
 
         Self {
             config_path,
@@ -183,10 +183,7 @@ impl SkfProvider for UnavailableProvider {
         Err(self.error())
     }
 
-    fn wait_for_event(
-        &self,
-        _buf_len: usize,
-    ) -> crate::provider::ProviderResult<(String, u32)> {
+    fn wait_for_event(&self, _buf_len: usize) -> crate::provider::ProviderResult<(String, u32)> {
         Err(self.error())
     }
 
@@ -235,8 +232,7 @@ impl SessionFactory for Box<dyn SessionFactory> {
 /// process-wide slot: the Windows SCM entry point is a C-style callback declared
 /// by `define_windows_service!` and cannot receive user data, so the binary
 /// installs its builder at startup instead of threading it through.
-pub type SessionBuilder =
-    fn(&SkfConfig, &Arc<dyn SkfProvider>) -> Box<dyn SessionFactory>;
+pub type SessionBuilder = fn(&SkfConfig, &Arc<dyn SkfProvider>) -> Box<dyn SessionFactory>;
 
 static SESSION_BUILDER: std::sync::OnceLock<SessionBuilder> = std::sync::OnceLock::new();
 
@@ -286,11 +282,7 @@ where
     }
 
     let listener = TcpListener::bind(ws_socket).await.map_err(|e| {
-        anyhow::anyhow!(
-            "failed to bind WebSocket listener on {}: {}",
-            ws_socket,
-            e
-        )
+        anyhow::anyhow!("failed to bind WebSocket listener on {}: {}", ws_socket, e)
     })?;
     // The resolved address, not the requested one: with port 0 the OS chooses.
     let bound_ws = listener
@@ -351,30 +343,28 @@ where
     let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
 
     match shutdown {
-        Some(mut stop) => {
-            loop {
-                tokio::select! {
-                    changed = stop.changed() => {
-                        match changed {
-                            Ok(()) => log::info!("service stop requested, shutting down"),
-                            Err(_) => log::info!("service stop channel closed, shutting down"),
-                        }
-                        break;
+        Some(mut stop) => loop {
+            tokio::select! {
+                changed = stop.changed() => {
+                    match changed {
+                        Ok(()) => log::info!("service stop requested, shutting down"),
+                        Err(_) => log::info!("service stop channel closed, shutting down"),
                     }
-                    accepted = listener.accept() => {
-                        match accepted {
-                            Ok((stream, peer)) => {
-                                admit(Arc::clone(&sessions), Arc::clone(&permits), stream, peer)
-                            }
-                            Err(e) => {
-                                log::error!("WebSocket accept error: {}", e);
-                                break;
-                            }
+                    break;
+                }
+                accepted = listener.accept() => {
+                    match accepted {
+                        Ok((stream, peer)) => {
+                            admit(Arc::clone(&sessions), Arc::clone(&permits), stream, peer)
+                        }
+                        Err(e) => {
+                            log::error!("WebSocket accept error: {}", e);
+                            break;
                         }
                     }
                 }
             }
-        }
+        },
         None => {
             while let Ok((stream, peer)) = listener.accept().await {
                 admit(Arc::clone(&sessions), Arc::clone(&permits), stream, peer);
@@ -464,13 +454,14 @@ fn spawn_client<S>(
             max_frame_size: Some(MAX_WS_MESSAGE_BYTES),
             ..Default::default()
         };
-        let mut ws = match tokio_tungstenite::accept_async_with_config(stream, Some(ws_config)).await {
-            Ok(ws) => ws,
-            Err(e) => {
-                log::debug!("websocket upgrade failed: {}", e);
-                return;
-            }
-        };
+        let mut ws =
+            match tokio_tungstenite::accept_async_with_config(stream, Some(ws_config)).await {
+                Ok(ws) => ws,
+                Err(e) => {
+                    log::debug!("websocket upgrade failed: {}", e);
+                    return;
+                }
+            };
         let mut session = sessions.create();
         while let Some(msg) = ws.next().await {
             match msg {

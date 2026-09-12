@@ -56,9 +56,11 @@ impl CreateContainer {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -80,11 +82,7 @@ impl CreateContainer {
         };
 
         if authorized(state, prov_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         // The created container is opened only long enough to confirm creation;
@@ -147,9 +145,11 @@ impl DeleteContainer {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -222,9 +222,11 @@ impl GetContainerType {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -345,9 +347,11 @@ impl ImportCertificate {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -369,11 +373,7 @@ impl ImportCertificate {
         };
 
         if authorized(state, prov_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         let container = match application.open_container(cont_name) {

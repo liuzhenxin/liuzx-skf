@@ -105,7 +105,8 @@ fn all_fixtures_are_wellformed() {
             .and_then(|s| s.to_str())
             .unwrap_or_default();
         assert_eq!(
-            stem, fixture.method,
+            stem,
+            fixture.method,
             "{}: file name must match the 'method' field",
             fixture.path.display()
         );

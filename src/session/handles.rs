@@ -169,10 +169,7 @@ impl HandleTable {
     }
 
     /// Remove a device, returning ownership so the caller can drop it.
-    pub fn remove_device(
-        &mut self,
-        handle: &str,
-    ) -> Result<Box<dyn DeviceGuard>, HandleError> {
+    pub fn remove_device(&mut self, handle: &str) -> Result<Box<dyn DeviceGuard>, HandleError> {
         self.check(handle, ResourceKind::Device)?;
         self.devices.remove(handle).ok_or(HandleError::Unknown)
     }
@@ -211,10 +208,7 @@ impl HandleTable {
         handle
     }
 
-    pub fn container(
-        &mut self,
-        handle: &str,
-    ) -> Result<&mut Box<dyn ContainerGuard>, HandleError> {
+    pub fn container(&mut self, handle: &str) -> Result<&mut Box<dyn ContainerGuard>, HandleError> {
         self.check(handle, ResourceKind::Container)?;
         self.containers.get_mut(handle).ok_or(HandleError::Unknown)
     }
@@ -315,7 +309,16 @@ mod tests {
     #[test]
     fn bare_numbers_and_garbage_are_rejected() {
         let mut table = HandleTable::new();
-        for bad in ["1", "0", "140234567890123", "", "no-prefix", "xyz-1", "-", "dev"] {
+        for bad in [
+            "1",
+            "0",
+            "140234567890123",
+            "",
+            "no-prefix",
+            "xyz-1",
+            "-",
+            "dev",
+        ] {
             assert_eq!(
                 rejection(table.device(bad)),
                 HandleError::WrongKind,
@@ -345,7 +348,11 @@ mod tests {
         let (_p, device) = fake_device();
         let device_handle = table.issue_device(device);
 
-        let app = table.device(&device_handle).expect("device").open_application("app").expect("app");
+        let app = table
+            .device(&device_handle)
+            .expect("device")
+            .open_application("app")
+            .expect("app");
         let app_handle = table.issue_application(app);
 
         let container = table
@@ -369,9 +376,18 @@ mod tests {
         assert!(digest_handle.starts_with("hsh-"));
 
         // Every cross-kind lookup is refused.
-        assert_eq!(rejection(table.device(&container_handle)), HandleError::WrongKind);
-        assert_eq!(rejection(table.application(&digest_handle)), HandleError::WrongKind);
-        assert_eq!(rejection(table.container(&device_handle)), HandleError::WrongKind);
+        assert_eq!(
+            rejection(table.device(&container_handle)),
+            HandleError::WrongKind
+        );
+        assert_eq!(
+            rejection(table.application(&digest_handle)),
+            HandleError::WrongKind
+        );
+        assert_eq!(
+            rejection(table.container(&device_handle)),
+            HandleError::WrongKind
+        );
         assert_eq!(rejection(table.digest(&app_handle)), HandleError::WrongKind);
     }
 

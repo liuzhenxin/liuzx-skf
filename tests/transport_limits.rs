@@ -46,11 +46,7 @@ async fn an_over_limit_frame_is_rejected_and_the_service_survives() {
 
     // The rejection must not have taken the service down.
     let mut next = connect(service.port()).await;
-    let response = send_and_receive(
-        &mut next,
-        &request("SetLanguage", json!(["EN"]), 2),
-    )
-    .await;
+    let response = send_and_receive(&mut next, &request("SetLanguage", json!(["EN"]), 2)).await;
     assert_eq!(
         response["error"], 0,
         "the service must remain responsive after rejecting a frame"
@@ -108,11 +104,8 @@ async fn connections_beyond_64_are_refused() {
     for id in 0..64 {
         let mut socket = connect(service.port()).await;
         // Prove the connection is live and served.
-        let response = send_and_receive(
-            &mut socket,
-            &request("SetLanguage", json!(["EN"]), id),
-        )
-        .await;
+        let response =
+            send_and_receive(&mut socket, &request("SetLanguage", json!(["EN"]), id)).await;
         assert_eq!(response["error"], 0);
         held.push(socket);
     }
@@ -130,10 +123,6 @@ async fn connections_beyond_64_are_refused() {
     held.pop();
     tokio::time::sleep(Duration::from_millis(200)).await;
     let mut fresh = connect(service.port()).await;
-    let response = send_and_receive(
-        &mut fresh,
-        &request("SetLanguage", json!(["EN"]), 99),
-    )
-    .await;
+    let response = send_and_receive(&mut fresh, &request("SetLanguage", json!(["EN"]), 99)).await;
     assert_eq!(response["error"], 0, "a freed slot must be reusable");
 }

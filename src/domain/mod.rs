@@ -39,9 +39,9 @@ use std::sync::Arc;
 
 use crate::protocol::{Language, RpcResponse};
 use crate::provider::{EccPublicKey, ProviderError, RsaPublicKey, SkfProvider};
-use crate::skf::types::{ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB};
 use crate::session::auth::{AuthKey, AuthRejection};
 use crate::session::SessionState;
+use crate::skf::types::{ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB};
 
 /// Resolves a provider alias for a handler.
 ///

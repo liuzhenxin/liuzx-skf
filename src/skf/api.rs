@@ -4,80 +4,257 @@ use libloading::{Library, Symbol};
 use std::sync::Arc;
 
 // Function Pointer Types
-pub type F_SKF_WaitForDevEvent = unsafe extern "system" fn(szDevName: *mut CHAR, pulDevNameLen: *mut ULONG, pulEvent: *mut ULONG) -> ULONG;
+pub type F_SKF_WaitForDevEvent = unsafe extern "system" fn(
+    szDevName: *mut CHAR,
+    pulDevNameLen: *mut ULONG,
+    pulEvent: *mut ULONG,
+) -> ULONG;
 pub type F_SKF_CancelWaitForDevEvent = unsafe extern "system" fn() -> ULONG;
-pub type F_SKF_EnumDev = unsafe extern "system" fn(bPresent: BOOL, szNameList: *mut CHAR, pulSize: *mut ULONG) -> ULONG;
-pub type F_SKF_ConnectDev = unsafe extern "system" fn(szName: *mut CHAR, hDev: *mut DEVHANDLE) -> ULONG;
+pub type F_SKF_EnumDev =
+    unsafe extern "system" fn(bPresent: BOOL, szNameList: *mut CHAR, pulSize: *mut ULONG) -> ULONG;
+pub type F_SKF_ConnectDev =
+    unsafe extern "system" fn(szName: *mut CHAR, hDev: *mut DEVHANDLE) -> ULONG;
 pub type F_SKF_DisConnectDev = unsafe extern "system" fn(hDev: DEVHANDLE) -> ULONG;
-pub type F_SKF_GetDevState = unsafe extern "system" fn(szDevName: *mut CHAR, pulDevState: *mut ULONG) -> ULONG;
+pub type F_SKF_GetDevState =
+    unsafe extern "system" fn(szDevName: *mut CHAR, pulDevState: *mut ULONG) -> ULONG;
 pub type F_SKF_SetLabel = unsafe extern "system" fn(hDev: DEVHANDLE, szLabel: *mut CHAR) -> ULONG;
-pub type F_SKF_GetDevInfo = unsafe extern "system" fn(hDev: DEVHANDLE, pDevInfo: *mut DEVINFO) -> ULONG;
+pub type F_SKF_GetDevInfo =
+    unsafe extern "system" fn(hDev: DEVHANDLE, pDevInfo: *mut DEVINFO) -> ULONG;
 pub type F_SKF_LockDev = unsafe extern "system" fn(hDev: DEVHANDLE, ulTimeOut: ULONG) -> ULONG;
 pub type F_SKF_UnlockDev = unsafe extern "system" fn(hDev: DEVHANDLE) -> ULONG;
-pub type F_SKF_Transmit = unsafe extern "system" fn(hDev: DEVHANDLE, pbCommand: *mut BYTE, ulCommandLen: ULONG, pbData: *mut BYTE, pulDataLen: *mut ULONG) -> ULONG;
+pub type F_SKF_Transmit = unsafe extern "system" fn(
+    hDev: DEVHANDLE,
+    pbCommand: *mut BYTE,
+    ulCommandLen: ULONG,
+    pbData: *mut BYTE,
+    pulDataLen: *mut ULONG,
+) -> ULONG;
 
 // App Management
-pub type F_SKF_EnumApplication = unsafe extern "system" fn(hDev: DEVHANDLE, szAppName: *mut CHAR, pulSize: *mut ULONG) -> ULONG;
-pub type F_SKF_OpenApplication = unsafe extern "system" fn(hDev: DEVHANDLE, szAppName: *mut CHAR, hApplication: *mut HAPPLICATION) -> ULONG;
+pub type F_SKF_EnumApplication =
+    unsafe extern "system" fn(hDev: DEVHANDLE, szAppName: *mut CHAR, pulSize: *mut ULONG) -> ULONG;
+pub type F_SKF_OpenApplication = unsafe extern "system" fn(
+    hDev: DEVHANDLE,
+    szAppName: *mut CHAR,
+    hApplication: *mut HAPPLICATION,
+) -> ULONG;
 pub type F_SKF_CloseApplication = unsafe extern "system" fn(hApp: HAPPLICATION) -> ULONG;
 
 // Container Management
-pub type F_SKF_EnumContainer = unsafe extern "system" fn(hApp: HAPPLICATION, szContainerName: *mut CHAR, pulSize: *mut ULONG) -> ULONG;
-pub type F_SKF_OpenContainer = unsafe extern "system" fn(hApp: HAPPLICATION, szContainerName: *mut CHAR, hContainer: *mut HCONTAINER) -> ULONG;
+pub type F_SKF_EnumContainer = unsafe extern "system" fn(
+    hApp: HAPPLICATION,
+    szContainerName: *mut CHAR,
+    pulSize: *mut ULONG,
+) -> ULONG;
+pub type F_SKF_OpenContainer = unsafe extern "system" fn(
+    hApp: HAPPLICATION,
+    szContainerName: *mut CHAR,
+    hContainer: *mut HCONTAINER,
+) -> ULONG;
 pub type F_SKF_CloseContainer = unsafe extern "system" fn(hContainer: HCONTAINER) -> ULONG;
 
 // Auth & Crypto
-pub type F_SKF_VerifyPIN = unsafe extern "system" fn(hApp: HAPPLICATION, ulPINType: ULONG, szPIN: *mut CHAR, pulRetryCount: *mut ULONG) -> ULONG;
-pub type F_SKF_GenRandom = unsafe extern "system" fn(hDev: DEVHANDLE, pbRandom: *mut BYTE, ulRandomLen: ULONG) -> ULONG;
-pub type F_SKF_ECCSignData = unsafe extern "system" fn(hContainer: HCONTAINER, pbData: *mut BYTE, ulDataLen: ULONG, pSignature: *mut ECCSIGNATUREBLOB) -> ULONG;
-pub type F_SKF_ECCVerify = unsafe extern "system" fn(hDev: DEVHANDLE, pECCPubKeyBlob: *mut ECCPUBLICKEYBLOB, pbData: *mut BYTE, ulDataLen: ULONG, pSignature: *mut ECCSIGNATUREBLOB) -> ULONG;
-pub type F_SKF_ExportCertificate = unsafe extern "system" fn(hContainer: HCONTAINER, bSignFlag: BOOL, pbCert: *mut BYTE, pulCertLen: *mut ULONG) -> ULONG;
-pub type F_SKF_GetContainerType = unsafe extern "system" fn(hContainer: HCONTAINER, pulContainerType: *mut ULONG) -> ULONG;
-pub type F_SKF_RSASignData = unsafe extern "system" fn(hContainer: HCONTAINER, pbData: *mut BYTE, ulDataLen: ULONG, pbSignature: *mut BYTE, pulSignLen: *mut ULONG) -> ULONG;
-pub type F_SKF_DigestInit = unsafe extern "system" fn(hDev: DEVHANDLE, ulAlgID: ULONG, pPubKey: *mut ECCPUBLICKEYBLOB, pucID: *mut BYTE, ulIDLen: ULONG, phHash: *mut HANDLE) -> ULONG;
-pub type F_SKF_Digest = unsafe extern "system" fn(hHash: HANDLE, pbData: *mut BYTE, ulDataLen: ULONG, pbHashData: *mut BYTE, pulHashLen: *mut ULONG) -> ULONG;
-pub type F_SKF_CreateContainer = unsafe extern "system" fn(hApp: HAPPLICATION, szContainerName: *mut CHAR, phContainer: *mut HCONTAINER) -> ULONG;
-pub type F_SKF_GenECCKeyPair = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgId: ULONG, pBlob: *mut ECCPUBLICKEYBLOB) -> ULONG;
-pub type F_SKF_GenRSAKeyPair = unsafe extern "system" fn(hContainer: HCONTAINER, ulBitsLen: ULONG, pBlob: *mut RSAPUBLICKEYBLOB) -> ULONG;
-pub type F_SKF_DeleteContainer = unsafe extern "system" fn(hApp: HAPPLICATION, szContainerName: *mut CHAR) -> ULONG;
-pub type F_SKF_ImportCertificate = unsafe extern "system" fn(hContainer: HCONTAINER, bSignFlag: BOOL, pbCert: *mut BYTE, ulCertLen: ULONG) -> ULONG;
-pub type F_SKF_ImportECCKeyPair = unsafe extern "system" fn(hContainer: HCONTAINER, pEnvelopedKeyBlob: *const ENVELOPEDKEYBLOB) -> ULONG;
-pub type F_SKF_ImportRSAKeyPair = unsafe extern "system" fn(hContainer: HCONTAINER, ulSymAlgId: ULONG, pbWrappedKey: *mut BYTE, ulWrappedKeyLen: ULONG, pbEncryptedData: *mut BYTE, ulEncryptedDataLen: ULONG) -> ULONG;
+pub type F_SKF_VerifyPIN = unsafe extern "system" fn(
+    hApp: HAPPLICATION,
+    ulPINType: ULONG,
+    szPIN: *mut CHAR,
+    pulRetryCount: *mut ULONG,
+) -> ULONG;
+pub type F_SKF_GenRandom =
+    unsafe extern "system" fn(hDev: DEVHANDLE, pbRandom: *mut BYTE, ulRandomLen: ULONG) -> ULONG;
+pub type F_SKF_ECCSignData = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    pbData: *mut BYTE,
+    ulDataLen: ULONG,
+    pSignature: *mut ECCSIGNATUREBLOB,
+) -> ULONG;
+pub type F_SKF_ECCVerify = unsafe extern "system" fn(
+    hDev: DEVHANDLE,
+    pECCPubKeyBlob: *mut ECCPUBLICKEYBLOB,
+    pbData: *mut BYTE,
+    ulDataLen: ULONG,
+    pSignature: *mut ECCSIGNATUREBLOB,
+) -> ULONG;
+pub type F_SKF_ExportCertificate = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    bSignFlag: BOOL,
+    pbCert: *mut BYTE,
+    pulCertLen: *mut ULONG,
+) -> ULONG;
+pub type F_SKF_GetContainerType =
+    unsafe extern "system" fn(hContainer: HCONTAINER, pulContainerType: *mut ULONG) -> ULONG;
+pub type F_SKF_RSASignData = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    pbData: *mut BYTE,
+    ulDataLen: ULONG,
+    pbSignature: *mut BYTE,
+    pulSignLen: *mut ULONG,
+) -> ULONG;
+pub type F_SKF_DigestInit = unsafe extern "system" fn(
+    hDev: DEVHANDLE,
+    ulAlgID: ULONG,
+    pPubKey: *mut ECCPUBLICKEYBLOB,
+    pucID: *mut BYTE,
+    ulIDLen: ULONG,
+    phHash: *mut HANDLE,
+) -> ULONG;
+pub type F_SKF_Digest = unsafe extern "system" fn(
+    hHash: HANDLE,
+    pbData: *mut BYTE,
+    ulDataLen: ULONG,
+    pbHashData: *mut BYTE,
+    pulHashLen: *mut ULONG,
+) -> ULONG;
+pub type F_SKF_CreateContainer = unsafe extern "system" fn(
+    hApp: HAPPLICATION,
+    szContainerName: *mut CHAR,
+    phContainer: *mut HCONTAINER,
+) -> ULONG;
+pub type F_SKF_GenECCKeyPair = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulAlgId: ULONG,
+    pBlob: *mut ECCPUBLICKEYBLOB,
+) -> ULONG;
+pub type F_SKF_GenRSAKeyPair = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulBitsLen: ULONG,
+    pBlob: *mut RSAPUBLICKEYBLOB,
+) -> ULONG;
+pub type F_SKF_DeleteContainer =
+    unsafe extern "system" fn(hApp: HAPPLICATION, szContainerName: *mut CHAR) -> ULONG;
+pub type F_SKF_ImportCertificate = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    bSignFlag: BOOL,
+    pbCert: *mut BYTE,
+    ulCertLen: ULONG,
+) -> ULONG;
+pub type F_SKF_ImportECCKeyPair = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    pEnvelopedKeyBlob: *const ENVELOPEDKEYBLOB,
+) -> ULONG;
+pub type F_SKF_ImportRSAKeyPair = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulSymAlgId: ULONG,
+    pbWrappedKey: *mut BYTE,
+    ulWrappedKeyLen: ULONG,
+    pbEncryptedData: *mut BYTE,
+    ulEncryptedDataLen: ULONG,
+) -> ULONG;
 
 // Symmetric Encryption/Decryption
-pub type F_SKF_EncryptData = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pbData: *mut BYTE, ulDataLen: ULONG, pBlockCipherParam: *mut BLOCKCIPHERPARAM, pbEncryptedData: *mut BYTE, pulEncryptedDataLen: *mut ULONG) -> ULONG;
-pub type F_SKF_DecryptData = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pbEncryptedData: *mut BYTE, ulEncryptedDataLen: ULONG, pBlockCipherParam: *mut BLOCKCIPHERPARAM, pbData: *mut BYTE, pulDataLen: *mut ULONG) -> ULONG;
+pub type F_SKF_EncryptData = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulAlgID: ULONG,
+    pbData: *mut BYTE,
+    ulDataLen: ULONG,
+    pBlockCipherParam: *mut BLOCKCIPHERPARAM,
+    pbEncryptedData: *mut BYTE,
+    pulEncryptedDataLen: *mut ULONG,
+) -> ULONG;
+pub type F_SKF_DecryptData = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulAlgID: ULONG,
+    pbEncryptedData: *mut BYTE,
+    ulEncryptedDataLen: ULONG,
+    pBlockCipherParam: *mut BLOCKCIPHERPARAM,
+    pbData: *mut BYTE,
+    pulDataLen: *mut ULONG,
+) -> ULONG;
 
 // P2 - PIN Management
-pub type F_SKF_ChangePIN = unsafe extern "system" fn(hApp: HAPPLICATION, ulOldPINType: ULONG, szOldPIN: *mut CHAR, ulNewPINType: ULONG, szNewPIN: *mut CHAR) -> ULONG;
-pub type F_SKF_UnblockPIN = unsafe extern "system" fn(hApp: HAPPLICATION, ulPUKType: ULONG, szPUK: *mut CHAR, ulNewPINType: ULONG, szNewPIN: *mut CHAR) -> ULONG;
-pub type F_SKF_GetPINInfo = unsafe extern "system" fn(hApp: HAPPLICATION, ulPINType: ULONG, pulMaxLen: *mut ULONG, pulMinLen: *mut ULONG, pulRetryCount: *mut ULONG) -> ULONG;
+pub type F_SKF_ChangePIN = unsafe extern "system" fn(
+    hApp: HAPPLICATION,
+    ulOldPINType: ULONG,
+    szOldPIN: *mut CHAR,
+    ulNewPINType: ULONG,
+    szNewPIN: *mut CHAR,
+) -> ULONG;
+pub type F_SKF_UnblockPIN = unsafe extern "system" fn(
+    hApp: HAPPLICATION,
+    ulPUKType: ULONG,
+    szPUK: *mut CHAR,
+    ulNewPINType: ULONG,
+    szNewPIN: *mut CHAR,
+) -> ULONG;
+pub type F_SKF_GetPINInfo = unsafe extern "system" fn(
+    hApp: HAPPLICATION,
+    ulPINType: ULONG,
+    pulMaxLen: *mut ULONG,
+    pulMinLen: *mut ULONG,
+    pulRetryCount: *mut ULONG,
+) -> ULONG;
 
 // P2 - Application Management
-pub type F_SKF_CreateApplication = unsafe extern "system" fn(hDev: DEVHANDLE, szAppName: *mut CHAR) -> ULONG;
-pub type F_SKF_DeleteApplication = unsafe extern "system" fn(hDev: DEVHANDLE, szAppName: *mut CHAR) -> ULONG;
+pub type F_SKF_CreateApplication =
+    unsafe extern "system" fn(hDev: DEVHANDLE, szAppName: *mut CHAR) -> ULONG;
+pub type F_SKF_DeleteApplication =
+    unsafe extern "system" fn(hDev: DEVHANDLE, szAppName: *mut CHAR) -> ULONG;
 
 // P2 - Step-by-step Symmetric Encryption/Decryption
-pub type F_SKF_EncryptInit = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pBlockCipherParam: *mut BLOCKCIPHERPARAM, phCipher: *mut HANDLE) -> ULONG;
-pub type F_SKF_EncryptUpdate = unsafe extern "system" fn(hCipher: HANDLE, pbData: *mut BYTE, ulDataLen: ULONG, pbEncryptedData: *mut BYTE, pulDataLen: *mut ULONG) -> ULONG;
+pub type F_SKF_EncryptInit = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulAlgID: ULONG,
+    pBlockCipherParam: *mut BLOCKCIPHERPARAM,
+    phCipher: *mut HANDLE,
+) -> ULONG;
+pub type F_SKF_EncryptUpdate = unsafe extern "system" fn(
+    hCipher: HANDLE,
+    pbData: *mut BYTE,
+    ulDataLen: ULONG,
+    pbEncryptedData: *mut BYTE,
+    pulDataLen: *mut ULONG,
+) -> ULONG;
 pub type F_SKF_EncryptFinal = unsafe extern "system" fn(hCipher: HANDLE) -> ULONG;
 
-pub type F_SKF_DecryptInit = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pBlockCipherParam: *mut BLOCKCIPHERPARAM, phCipher: *mut HANDLE) -> ULONG;
-pub type F_SKF_DecryptUpdate = unsafe extern "system" fn(hCipher: HANDLE, pbEncryptedData: *mut BYTE, ulDataLen: ULONG, pbData: *mut BYTE, pulDataLen: *mut ULONG) -> ULONG;
+pub type F_SKF_DecryptInit = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulAlgID: ULONG,
+    pBlockCipherParam: *mut BLOCKCIPHERPARAM,
+    phCipher: *mut HANDLE,
+) -> ULONG;
+pub type F_SKF_DecryptUpdate = unsafe extern "system" fn(
+    hCipher: HANDLE,
+    pbEncryptedData: *mut BYTE,
+    ulDataLen: ULONG,
+    pbData: *mut BYTE,
+    pulDataLen: *mut ULONG,
+) -> ULONG;
 pub type F_SKF_DecryptFinal = unsafe extern "system" fn(hCipher: HANDLE) -> ULONG;
 
 // P2 - Step-by-step Hash
-pub type F_SKF_DigestUpdate = unsafe extern "system" fn(hHash: HANDLE, pbData: *mut BYTE, ulDataLen: ULONG) -> ULONG;
-pub type F_SKF_DigestFinal = unsafe extern "system" fn(hHash: HANDLE, pbHashData: *mut BYTE, pulHashLen: *mut ULONG) -> ULONG;
+pub type F_SKF_DigestUpdate =
+    unsafe extern "system" fn(hHash: HANDLE, pbData: *mut BYTE, ulDataLen: ULONG) -> ULONG;
+pub type F_SKF_DigestFinal = unsafe extern "system" fn(
+    hHash: HANDLE,
+    pbHashData: *mut BYTE,
+    pulHashLen: *mut ULONG,
+) -> ULONG;
 pub type F_SKF_CloseHash = unsafe extern "system" fn(hHash: HANDLE) -> ULONG;
 
 // P2 - RSA Verify
-pub type F_SKF_RSAVerify = unsafe extern "system" fn(hDev: DEVHANDLE, pRSAPubKeyBlob: *mut RSAPUBLICKEYBLOB, pbData: *mut BYTE, ulDataLen: ULONG, pbSignature: *mut BYTE, ulSignLen: ULONG) -> ULONG;
+pub type F_SKF_RSAVerify = unsafe extern "system" fn(
+    hDev: DEVHANDLE,
+    pRSAPubKeyBlob: *mut RSAPUBLICKEYBLOB,
+    pbData: *mut BYTE,
+    ulDataLen: ULONG,
+    pbSignature: *mut BYTE,
+    ulSignLen: ULONG,
+) -> ULONG;
 
 // P2 - Key Management
-pub type F_SKF_ExportPublicKey = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pbPublicKey: *mut BYTE, pulPublicKeyLen: *mut ULONG) -> ULONG;
+pub type F_SKF_ExportPublicKey = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulAlgID: ULONG,
+    pbPublicKey: *mut BYTE,
+    pulPublicKeyLen: *mut ULONG,
+) -> ULONG;
 pub type F_SKF_RNGSeed = unsafe extern "system" fn(pbSeed: *mut BYTE, ulSeedLen: ULONG) -> ULONG;
-pub type F_SKF_SetSymmKey = unsafe extern "system" fn(hContainer: HCONTAINER, ulAlgID: ULONG, pbSymKey: *mut BYTE, ulSymKeyLen: ULONG) -> ULONG;
+pub type F_SKF_SetSymmKey = unsafe extern "system" fn(
+    hContainer: HCONTAINER,
+    ulAlgID: ULONG,
+    pbSymKey: *mut BYTE,
+    ulSymKeyLen: ULONG,
+) -> ULONG;
 
 // Helper Wrapper
 pub struct SkfApi {
@@ -94,7 +271,12 @@ impl SkfApi {
     }
 
     // Event Management
-    pub fn wait_for_dev_event(&self, dev_name: *mut CHAR, dev_name_len: *mut ULONG, event: *mut ULONG) -> ULONG {
+    pub fn wait_for_dev_event(
+        &self,
+        dev_name: *mut CHAR,
+        dev_name_len: *mut ULONG,
+        event: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_WaitForDevEvent>(b"SKF_WaitForDevEvent") {
                 Ok(f) => f(dev_name, dev_name_len, event),
@@ -130,7 +312,7 @@ impl SkfApi {
             }
         }
     }
-    
+
     pub fn dis_connect_dev(&self, dev_handle: DEVHANDLE) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_DisConnectDev>(b"SKF_DisConnectDev") {
@@ -139,17 +321,22 @@ impl SkfApi {
             }
         }
     }
-    
+
     pub fn gen_random(&self, dev_handle: DEVHANDLE, random: *mut BYTE, len: ULONG) -> ULONG {
         unsafe {
-           match self.get_func::<F_SKF_GenRandom>(b"SKF_GenRandom") {
+            match self.get_func::<F_SKF_GenRandom>(b"SKF_GenRandom") {
                 Ok(f) => f(dev_handle, random, len),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }
     }
 
-    pub fn enum_application(&self, dev_handle: DEVHANDLE, app_name: *mut CHAR, size: *mut ULONG) -> ULONG {
+    pub fn enum_application(
+        &self,
+        dev_handle: DEVHANDLE,
+        app_name: *mut CHAR,
+        size: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_EnumApplication>(b"SKF_EnumApplication") {
                 Ok(f) => f(dev_handle, app_name, size),
@@ -158,7 +345,12 @@ impl SkfApi {
         }
     }
 
-    pub fn open_application(&self, dev_handle: DEVHANDLE, app_name: *mut CHAR, app_handle: *mut HAPPLICATION) -> ULONG {
+    pub fn open_application(
+        &self,
+        dev_handle: DEVHANDLE,
+        app_name: *mut CHAR,
+        app_handle: *mut HAPPLICATION,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_OpenApplication>(b"SKF_OpenApplication") {
                 Ok(f) => f(dev_handle, app_name, app_handle),
@@ -176,7 +368,12 @@ impl SkfApi {
         }
     }
 
-    pub fn enum_container(&self, app_handle: HAPPLICATION, container_name: *mut CHAR, size: *mut ULONG) -> ULONG {
+    pub fn enum_container(
+        &self,
+        app_handle: HAPPLICATION,
+        container_name: *mut CHAR,
+        size: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_EnumContainer>(b"SKF_EnumContainer") {
                 Ok(f) => f(app_handle, container_name, size),
@@ -185,7 +382,12 @@ impl SkfApi {
         }
     }
 
-    pub fn open_container(&self, app_handle: HAPPLICATION, container_name: *mut CHAR, container_handle: *mut HCONTAINER) -> ULONG {
+    pub fn open_container(
+        &self,
+        app_handle: HAPPLICATION,
+        container_name: *mut CHAR,
+        container_handle: *mut HCONTAINER,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_OpenContainer>(b"SKF_OpenContainer") {
                 Ok(f) => f(app_handle, container_name, container_handle),
@@ -203,8 +405,14 @@ impl SkfApi {
         }
     }
 
-    pub fn export_certificate(&self, container_handle: HCONTAINER, sign_flag: BOOL, cert: *mut BYTE, size: *mut ULONG) -> ULONG {
-         unsafe {
+    pub fn export_certificate(
+        &self,
+        container_handle: HCONTAINER,
+        sign_flag: BOOL,
+        cert: *mut BYTE,
+        size: *mut ULONG,
+    ) -> ULONG {
+        unsafe {
             match self.get_func::<F_SKF_ExportCertificate>(b"SKF_ExportCertificate") {
                 Ok(f) => f(container_handle, sign_flag, cert, size),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
@@ -212,7 +420,13 @@ impl SkfApi {
         }
     }
 
-    pub fn verify_pin(&self, app_handle: HAPPLICATION, pin_type: ULONG, pin: *mut CHAR, retry_count: *mut ULONG) -> ULONG {
+    pub fn verify_pin(
+        &self,
+        app_handle: HAPPLICATION,
+        pin_type: ULONG,
+        pin: *mut CHAR,
+        retry_count: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_VerifyPIN>(b"SKF_VerifyPIN") {
                 Ok(f) => f(app_handle, pin_type, pin, retry_count),
@@ -221,7 +435,13 @@ impl SkfApi {
         }
     }
 
-    pub fn ecc_sign_data(&self, container_handle: HCONTAINER, data: *mut BYTE, data_len: ULONG, signature: *mut ECCSIGNATUREBLOB) -> ULONG {
+    pub fn ecc_sign_data(
+        &self,
+        container_handle: HCONTAINER,
+        data: *mut BYTE,
+        data_len: ULONG,
+        signature: *mut ECCSIGNATUREBLOB,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_ECCSignData>(b"SKF_ECCSignData") {
                 Ok(f) => f(container_handle, data, data_len, signature),
@@ -230,7 +450,11 @@ impl SkfApi {
         }
     }
 
-    pub fn get_container_type(&self, container_handle: HCONTAINER, container_type: *mut ULONG) -> ULONG {
+    pub fn get_container_type(
+        &self,
+        container_handle: HCONTAINER,
+        container_type: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_GetContainerType>(b"SKF_GetContainerType") {
                 Ok(f) => f(container_handle, container_type),
@@ -239,7 +463,14 @@ impl SkfApi {
         }
     }
 
-    pub fn rsa_sign_data(&self, container_handle: HCONTAINER, data: *mut BYTE, data_len: ULONG, signature: *mut BYTE, sig_len: *mut ULONG) -> ULONG {
+    pub fn rsa_sign_data(
+        &self,
+        container_handle: HCONTAINER,
+        data: *mut BYTE,
+        data_len: ULONG,
+        signature: *mut BYTE,
+        sig_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_RSASignData>(b"SKF_RSASignData") {
                 Ok(f) => f(container_handle, data, data_len, signature, sig_len),
@@ -248,7 +479,15 @@ impl SkfApi {
         }
     }
 
-    pub fn digest_init(&self, dev_handle: DEVHANDLE, alg_id: ULONG, pub_key: *mut ECCPUBLICKEYBLOB, id: *mut BYTE, id_len: ULONG, hash_handle: *mut HANDLE) -> ULONG {
+    pub fn digest_init(
+        &self,
+        dev_handle: DEVHANDLE,
+        alg_id: ULONG,
+        pub_key: *mut ECCPUBLICKEYBLOB,
+        id: *mut BYTE,
+        id_len: ULONG,
+        hash_handle: *mut HANDLE,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_DigestInit>(b"SKF_DigestInit") {
                 Ok(f) => f(dev_handle, alg_id, pub_key, id, id_len, hash_handle),
@@ -257,7 +496,14 @@ impl SkfApi {
         }
     }
 
-    pub fn digest(&self, hash_handle: HANDLE, data: *mut BYTE, data_len: ULONG, hash_data: *mut BYTE, hash_len: *mut ULONG) -> ULONG {
+    pub fn digest(
+        &self,
+        hash_handle: HANDLE,
+        data: *mut BYTE,
+        data_len: ULONG,
+        hash_data: *mut BYTE,
+        hash_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_Digest>(b"SKF_Digest") {
                 Ok(f) => f(hash_handle, data, data_len, hash_data, hash_len),
@@ -266,7 +512,12 @@ impl SkfApi {
         }
     }
 
-    pub fn create_container(&self, app_handle: HAPPLICATION, name: *mut CHAR, container_handle: *mut HCONTAINER) -> ULONG {
+    pub fn create_container(
+        &self,
+        app_handle: HAPPLICATION,
+        name: *mut CHAR,
+        container_handle: *mut HCONTAINER,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_CreateContainer>(b"SKF_CreateContainer") {
                 Ok(f) => f(app_handle, name, container_handle),
@@ -275,7 +526,12 @@ impl SkfApi {
         }
     }
 
-    pub fn gen_ecc_key_pair(&self, container_handle: HCONTAINER, alg_id: ULONG, pub_key: *mut ECCPUBLICKEYBLOB) -> ULONG {
+    pub fn gen_ecc_key_pair(
+        &self,
+        container_handle: HCONTAINER,
+        alg_id: ULONG,
+        pub_key: *mut ECCPUBLICKEYBLOB,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_GenECCKeyPair>(b"SKF_GenECCKeyPair") {
                 Ok(f) => f(container_handle, alg_id, pub_key),
@@ -284,7 +540,12 @@ impl SkfApi {
         }
     }
 
-    pub fn gen_rsa_key_pair(&self, container_handle: HCONTAINER, bits_len: ULONG, pub_key: *mut RSAPUBLICKEYBLOB) -> ULONG {
+    pub fn gen_rsa_key_pair(
+        &self,
+        container_handle: HCONTAINER,
+        bits_len: ULONG,
+        pub_key: *mut RSAPUBLICKEYBLOB,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_GenRSAKeyPair>(b"SKF_GenRSAKeyPair") {
                 Ok(f) => f(container_handle, bits_len, pub_key),
@@ -302,7 +563,13 @@ impl SkfApi {
         }
     }
 
-    pub fn import_certificate(&self, container_handle: HCONTAINER, sign_flag: BOOL, cert: *mut BYTE, cert_len: ULONG) -> ULONG {
+    pub fn import_certificate(
+        &self,
+        container_handle: HCONTAINER,
+        sign_flag: BOOL,
+        cert: *mut BYTE,
+        cert_len: ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_ImportCertificate>(b"SKF_ImportCertificate") {
                 Ok(f) => f(container_handle, sign_flag, cert, cert_len),
@@ -311,7 +578,11 @@ impl SkfApi {
         }
     }
 
-    pub fn import_ecc_key_pair(&self, container_handle: HCONTAINER, enveloped_key_blob: *const ENVELOPEDKEYBLOB) -> ULONG {
+    pub fn import_ecc_key_pair(
+        &self,
+        container_handle: HCONTAINER,
+        enveloped_key_blob: *const ENVELOPEDKEYBLOB,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_ImportECCKeyPair>(b"SKF_ImportECCKeyPair") {
                 Ok(f) => f(container_handle, enveloped_key_blob),
@@ -320,35 +591,91 @@ impl SkfApi {
         }
     }
 
-    pub fn import_rsa_key_pair(&self, container_handle: HCONTAINER, sym_alg_id: ULONG, wrapped_key: *mut BYTE, wrapped_key_len: ULONG, encrypted_data: *mut BYTE, encrypted_data_len: ULONG) -> ULONG {
+    pub fn import_rsa_key_pair(
+        &self,
+        container_handle: HCONTAINER,
+        sym_alg_id: ULONG,
+        wrapped_key: *mut BYTE,
+        wrapped_key_len: ULONG,
+        encrypted_data: *mut BYTE,
+        encrypted_data_len: ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_ImportRSAKeyPair>(b"SKF_ImportRSAKeyPair") {
-                Ok(f) => f(container_handle, sym_alg_id, wrapped_key, wrapped_key_len, encrypted_data, encrypted_data_len),
+                Ok(f) => f(
+                    container_handle,
+                    sym_alg_id,
+                    wrapped_key,
+                    wrapped_key_len,
+                    encrypted_data,
+                    encrypted_data_len,
+                ),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }
     }
 
-    pub fn encrypt_data(&self, container_handle: HCONTAINER, alg_id: ULONG, data: *mut BYTE, data_len: ULONG, block_cipher_param: *mut BLOCKCIPHERPARAM, encrypted_data: *mut BYTE, encrypted_data_len: *mut ULONG) -> ULONG {
+    pub fn encrypt_data(
+        &self,
+        container_handle: HCONTAINER,
+        alg_id: ULONG,
+        data: *mut BYTE,
+        data_len: ULONG,
+        block_cipher_param: *mut BLOCKCIPHERPARAM,
+        encrypted_data: *mut BYTE,
+        encrypted_data_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_EncryptData>(b"SKF_EncryptData") {
-                Ok(f) => f(container_handle, alg_id, data, data_len, block_cipher_param, encrypted_data, encrypted_data_len),
+                Ok(f) => f(
+                    container_handle,
+                    alg_id,
+                    data,
+                    data_len,
+                    block_cipher_param,
+                    encrypted_data,
+                    encrypted_data_len,
+                ),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }
     }
 
-    pub fn decrypt_data(&self, container_handle: HCONTAINER, alg_id: ULONG, encrypted_data: *mut BYTE, encrypted_data_len: ULONG, block_cipher_param: *mut BLOCKCIPHERPARAM, data: *mut BYTE, data_len: *mut ULONG) -> ULONG {
+    pub fn decrypt_data(
+        &self,
+        container_handle: HCONTAINER,
+        alg_id: ULONG,
+        encrypted_data: *mut BYTE,
+        encrypted_data_len: ULONG,
+        block_cipher_param: *mut BLOCKCIPHERPARAM,
+        data: *mut BYTE,
+        data_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_DecryptData>(b"SKF_DecryptData") {
-                Ok(f) => f(container_handle, alg_id, encrypted_data, encrypted_data_len, block_cipher_param, data, data_len),
+                Ok(f) => f(
+                    container_handle,
+                    alg_id,
+                    encrypted_data,
+                    encrypted_data_len,
+                    block_cipher_param,
+                    data,
+                    data_len,
+                ),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }
     }
 
     // P2 - PIN Management
-    pub fn change_pin(&self, app_handle: HAPPLICATION, old_pin_type: ULONG, old_pin: *mut CHAR, new_pin_type: ULONG, new_pin: *mut CHAR) -> ULONG {
+    pub fn change_pin(
+        &self,
+        app_handle: HAPPLICATION,
+        old_pin_type: ULONG,
+        old_pin: *mut CHAR,
+        new_pin_type: ULONG,
+        new_pin: *mut CHAR,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_ChangePIN>(b"SKF_ChangePIN") {
                 Ok(f) => f(app_handle, old_pin_type, old_pin, new_pin_type, new_pin),
@@ -357,7 +684,14 @@ impl SkfApi {
         }
     }
 
-    pub fn unblock_pin(&self, app_handle: HAPPLICATION, puk_type: ULONG, puk: *mut CHAR, new_pin_type: ULONG, new_pin: *mut CHAR) -> ULONG {
+    pub fn unblock_pin(
+        &self,
+        app_handle: HAPPLICATION,
+        puk_type: ULONG,
+        puk: *mut CHAR,
+        new_pin_type: ULONG,
+        new_pin: *mut CHAR,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_UnblockPIN>(b"SKF_UnblockPIN") {
                 Ok(f) => f(app_handle, puk_type, puk, new_pin_type, new_pin),
@@ -366,7 +700,14 @@ impl SkfApi {
         }
     }
 
-    pub fn get_pin_info(&self, app_handle: HAPPLICATION, pin_type: ULONG, max_len: *mut ULONG, min_len: *mut ULONG, retry_count: *mut ULONG) -> ULONG {
+    pub fn get_pin_info(
+        &self,
+        app_handle: HAPPLICATION,
+        pin_type: ULONG,
+        max_len: *mut ULONG,
+        min_len: *mut ULONG,
+        retry_count: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_GetPINInfo>(b"SKF_GetPINInfo") {
                 Ok(f) => f(app_handle, pin_type, max_len, min_len, retry_count),
@@ -395,7 +736,13 @@ impl SkfApi {
     }
 
     // P2 - Step-by-step Symmetric Encryption/Decryption
-    pub fn encrypt_init(&self, container_handle: HCONTAINER, alg_id: ULONG, block_cipher_param: *mut BLOCKCIPHERPARAM, cipher_handle: *mut HANDLE) -> ULONG {
+    pub fn encrypt_init(
+        &self,
+        container_handle: HCONTAINER,
+        alg_id: ULONG,
+        block_cipher_param: *mut BLOCKCIPHERPARAM,
+        cipher_handle: *mut HANDLE,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_EncryptInit>(b"SKF_EncryptInit") {
                 Ok(f) => f(container_handle, alg_id, block_cipher_param, cipher_handle),
@@ -404,10 +751,23 @@ impl SkfApi {
         }
     }
 
-    pub fn encrypt_update(&self, cipher_handle: HANDLE, data: *mut BYTE, data_len: ULONG, encrypted_data: *mut BYTE, encrypted_data_len: *mut ULONG) -> ULONG {
+    pub fn encrypt_update(
+        &self,
+        cipher_handle: HANDLE,
+        data: *mut BYTE,
+        data_len: ULONG,
+        encrypted_data: *mut BYTE,
+        encrypted_data_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_EncryptUpdate>(b"SKF_EncryptUpdate") {
-                Ok(f) => f(cipher_handle, data, data_len, encrypted_data, encrypted_data_len),
+                Ok(f) => f(
+                    cipher_handle,
+                    data,
+                    data_len,
+                    encrypted_data,
+                    encrypted_data_len,
+                ),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }
@@ -422,7 +782,13 @@ impl SkfApi {
         }
     }
 
-    pub fn decrypt_init(&self, container_handle: HCONTAINER, alg_id: ULONG, block_cipher_param: *mut BLOCKCIPHERPARAM, cipher_handle: *mut HANDLE) -> ULONG {
+    pub fn decrypt_init(
+        &self,
+        container_handle: HCONTAINER,
+        alg_id: ULONG,
+        block_cipher_param: *mut BLOCKCIPHERPARAM,
+        cipher_handle: *mut HANDLE,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_DecryptInit>(b"SKF_DecryptInit") {
                 Ok(f) => f(container_handle, alg_id, block_cipher_param, cipher_handle),
@@ -431,10 +797,23 @@ impl SkfApi {
         }
     }
 
-    pub fn decrypt_update(&self, cipher_handle: HANDLE, encrypted_data: *mut BYTE, encrypted_data_len: ULONG, data: *mut BYTE, data_len: *mut ULONG) -> ULONG {
+    pub fn decrypt_update(
+        &self,
+        cipher_handle: HANDLE,
+        encrypted_data: *mut BYTE,
+        encrypted_data_len: ULONG,
+        data: *mut BYTE,
+        data_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_DecryptUpdate>(b"SKF_DecryptUpdate") {
-                Ok(f) => f(cipher_handle, encrypted_data, encrypted_data_len, data, data_len),
+                Ok(f) => f(
+                    cipher_handle,
+                    encrypted_data,
+                    encrypted_data_len,
+                    data,
+                    data_len,
+                ),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }
@@ -459,7 +838,12 @@ impl SkfApi {
         }
     }
 
-    pub fn digest_final(&self, hash_handle: HANDLE, hash_data: *mut BYTE, hash_len: *mut ULONG) -> ULONG {
+    pub fn digest_final(
+        &self,
+        hash_handle: HANDLE,
+        hash_data: *mut BYTE,
+        hash_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_DigestFinal>(b"SKF_DigestFinal") {
                 Ok(f) => f(hash_handle, hash_data, hash_len),
@@ -469,17 +853,38 @@ impl SkfApi {
     }
 
     // P2 - RSA Verify
-    pub fn rsa_verify(&self, dev_handle: DEVHANDLE, rsa_pub_key_blob: *mut RSAPUBLICKEYBLOB, data: *mut BYTE, data_len: ULONG, signature: *mut BYTE, sig_len: ULONG) -> ULONG {
+    pub fn rsa_verify(
+        &self,
+        dev_handle: DEVHANDLE,
+        rsa_pub_key_blob: *mut RSAPUBLICKEYBLOB,
+        data: *mut BYTE,
+        data_len: ULONG,
+        signature: *mut BYTE,
+        sig_len: ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_RSAVerify>(b"SKF_RSAVerify") {
-                Ok(f) => f(dev_handle, rsa_pub_key_blob, data, data_len, signature, sig_len),
+                Ok(f) => f(
+                    dev_handle,
+                    rsa_pub_key_blob,
+                    data,
+                    data_len,
+                    signature,
+                    sig_len,
+                ),
                 Err(_) => SAR_COULDNOTGETFUNCADDR,
             }
         }
     }
 
     // P2 - Key Management
-    pub fn export_public_key(&self, container_handle: HCONTAINER, alg_id: ULONG, public_key: *mut BYTE, public_key_len: *mut ULONG) -> ULONG {
+    pub fn export_public_key(
+        &self,
+        container_handle: HCONTAINER,
+        alg_id: ULONG,
+        public_key: *mut BYTE,
+        public_key_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_ExportPublicKey>(b"SKF_ExportPublicKey") {
                 Ok(f) => f(container_handle, alg_id, public_key, public_key_len),
@@ -540,7 +945,14 @@ impl SkfApi {
         }
     }
 
-    pub fn ecc_verify(&self, dev_handle: DEVHANDLE, ecc_pub_key: *mut ECCPUBLICKEYBLOB, data: *mut BYTE, data_len: ULONG, signature: *mut ECCSIGNATUREBLOB) -> ULONG {
+    pub fn ecc_verify(
+        &self,
+        dev_handle: DEVHANDLE,
+        ecc_pub_key: *mut ECCPUBLICKEYBLOB,
+        data: *mut BYTE,
+        data_len: ULONG,
+        signature: *mut ECCSIGNATUREBLOB,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_ECCVerify>(b"SKF_ECCVerify") {
                 Ok(f) => f(dev_handle, ecc_pub_key, data, data_len, signature),
@@ -567,7 +979,14 @@ impl SkfApi {
         }
     }
 
-    pub fn transmit(&self, dev_handle: DEVHANDLE, command: *mut BYTE, command_len: ULONG, response: *mut BYTE, response_len: *mut ULONG) -> ULONG {
+    pub fn transmit(
+        &self,
+        dev_handle: DEVHANDLE,
+        command: *mut BYTE,
+        command_len: ULONG,
+        response: *mut BYTE,
+        response_len: *mut ULONG,
+    ) -> ULONG {
         unsafe {
             match self.get_func::<F_SKF_Transmit>(b"SKF_Transmit") {
                 Ok(f) => f(dev_handle, command, command_len, response, response_len),

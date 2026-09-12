@@ -11,7 +11,8 @@ use crate::session::auth::AuthKey;
 use crate::session::SessionState;
 
 use super::{
-    load_failed, native_code, normalize_alias, note_device_unavailable, split_cert_key, ServerContext,
+    load_failed, native_code, normalize_alias, note_device_unavailable, split_cert_key,
+    ServerContext,
 };
 
 /// `CheckPIN` — params `[certKey, pin]`.
@@ -58,9 +59,11 @@ impl CheckPIN {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -95,7 +98,9 @@ impl CheckPIN {
                     Some(code) => {
                         let msg = match lang {
                             Language::CN => format!("PIN验证失败: 0x{:08X}, 剩余次数: 0", code),
-                            Language::EN => format!("VerifyPIN failed: 0x{:08X}, retries left: 0", code),
+                            Language::EN => {
+                                format!("VerifyPIN failed: 0x{:08X}, retries left: 0", code)
+                            }
                         };
                         RpcResponse::err(code as i32, msg, id)
                     }

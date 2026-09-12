@@ -125,11 +125,7 @@ impl<'a> Params<'a> {
     /// The message is assembled as `"{message}: {error}"` because the inline code
     /// did the same (`format!("Invalid base64 data: {}", e)`), and the fixtures do
     /// not cover that path — keeping the shape means a future fixture can assert it.
-    pub fn required_base64(
-        &self,
-        index: usize,
-        message: &str,
-    ) -> Result<Vec<u8>, RpcResponse> {
+    pub fn required_base64(&self, index: usize, message: &str) -> Result<Vec<u8>, RpcResponse> {
         let encoded = self.required_str(index, message)?;
         self.decode_base64(encoded, message)
     }
@@ -163,11 +159,9 @@ impl<'a> Params<'a> {
     /// An optional base64 string; empty or absent decodes to an empty buffer.
     pub fn optional_base64(&self, index: usize) -> Vec<u8> {
         match self.values.get(index).and_then(Value::as_str) {
-            Some(encoded) if !encoded.is_empty() => {
-                base64::engine::general_purpose::STANDARD
-                    .decode(encoded)
-                    .unwrap_or_default()
-            }
+            Some(encoded) if !encoded.is_empty() => base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .unwrap_or_default(),
             _ => Vec::new(),
         }
     }
@@ -193,7 +187,8 @@ mod tests {
     fn a_present_string_is_returned() {
         let p = params(vec![json!("GM3000")]);
         assert_eq!(
-            p.required_str(0, "Missing providerName param").expect("present"),
+            p.required_str(0, "Missing providerName param")
+                .expect("present"),
             "GM3000"
         );
     }
@@ -205,7 +200,10 @@ mod tests {
         let p = params(vec![]);
         let response = p.required_str(1, "Missing deviceName param").unwrap_err();
         assert_eq!(response.error, -2);
-        assert_eq!(response.message.as_deref(), Some("Missing deviceName param"));
+        assert_eq!(
+            response.message.as_deref(),
+            Some("Missing deviceName param")
+        );
     }
 
     #[test]
@@ -220,7 +218,11 @@ mod tests {
     fn rejections_carry_the_request_id() {
         let p = params(vec![]);
         let response = p.required_str(0, "Missing param").unwrap_err();
-        assert_eq!(response.id, Some(json!(42)), "an error must stay correlatable");
+        assert_eq!(
+            response.id,
+            Some(json!(42)),
+            "an error must stay correlatable"
+        );
     }
 
     #[test]
@@ -236,7 +238,10 @@ mod tests {
     #[test]
     fn base64_decodes_and_reports_invalid_input() {
         let p = params(vec![json!("aGVsbG8=")]);
-        assert_eq!(p.required_base64(0, "Invalid base64 data").unwrap(), b"hello");
+        assert_eq!(
+            p.required_base64(0, "Invalid base64 data").unwrap(),
+            b"hello"
+        );
 
         let bad = params(vec![json!("not base64!!")]);
         let response = bad.required_base64(0, "Invalid base64 data").unwrap_err();
@@ -267,7 +272,10 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
         let p = params(vec![json!(encoded)]);
         let decoded = p
-            .decode_base64(p.required_str(0, "m").expect("present"), "Invalid base64 data")
+            .decode_base64(
+                p.required_str(0, "m").expect("present"),
+                "Invalid base64 data",
+            )
             .expect("a payload at the limit must decode");
         assert_eq!(decoded.len(), MAX_PAYLOAD_BYTES);
     }
@@ -280,7 +288,10 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
         let p = params(vec![json!(encoded)]);
         let response = p
-            .decode_base64(p.required_str(0, "m").expect("present"), "Invalid base64 data")
+            .decode_base64(
+                p.required_str(0, "m").expect("present"),
+                "Invalid base64 data",
+            )
             .unwrap_err();
         assert_eq!(response.error, -2);
         assert!(
@@ -306,7 +317,11 @@ mod tests {
     #[test]
     fn integers_are_read_and_missing_ones_reject() {
         let p = params(vec![json!(256)]);
-        assert_eq!(p.required_u64(0, "Missing keyLength param").expect("present"), 256);
+        assert_eq!(
+            p.required_u64(0, "Missing keyLength param")
+                .expect("present"),
+            256
+        );
         let response = p.required_u64(1, "Missing keyLength param").unwrap_err();
         assert_eq!(response.error, -2);
     }

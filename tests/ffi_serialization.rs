@@ -123,7 +123,10 @@ async fn a_request_that_exceeds_30s_times_out() {
         &mut socket,
         &request(
             "IssueCertificate",
-            json!(["-----BEGIN CERTIFICATE REQUEST-----\nMIIB\n-----END CERTIFICATE REQUEST-----", false]),
+            json!([
+                "-----BEGIN CERTIFICATE REQUEST-----\nMIIB\n-----END CERTIFICATE REQUEST-----",
+                false
+            ]),
             1,
         ),
     )

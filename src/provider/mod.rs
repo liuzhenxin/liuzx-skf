@@ -148,10 +148,7 @@ pub enum SkfError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderError {
     /// A vendor call returned a non-zero code.
-    Native {
-        code: u32,
-        context: &'static str,
-    },
+    Native { code: u32, context: &'static str },
     /// The vendor library does not export the requested symbol.
     SymbolUnavailable { name: &'static str },
     /// The vendor library could not be loaded.
@@ -199,7 +196,11 @@ impl std::fmt::Display for ProviderError {
                 write!(f, "{} failed: 0x{:08X}", context, code)
             }
             ProviderError::SymbolUnavailable { name } => {
-                write!(f, "symbol '{}' is not available in the loaded library", name)
+                write!(
+                    f,
+                    "symbol '{}' is not available in the loaded library",
+                    name
+                )
             }
             ProviderError::LibraryLoadFailed { path, arch, detail } => write!(
                 f,
@@ -305,8 +306,10 @@ pub trait ContainerGuard: Send {
     /// Generate an RSA key pair of `bits` length inside this container.
     fn gen_rsa_key_pair(&self, bits: u32) -> ProviderResult<RsaPublicKey>;
     fn set_symm_key(&self, alg_id: u32, key: &[u8]) -> ProviderResult<()>;
-    fn encrypt(&self, alg_id: u32, iv: &[u8], padding: u32, data: &[u8]) -> ProviderResult<Vec<u8>>;
-    fn decrypt(&self, alg_id: u32, iv: &[u8], padding: u32, data: &[u8]) -> ProviderResult<Vec<u8>>;
+    fn encrypt(&self, alg_id: u32, iv: &[u8], padding: u32, data: &[u8])
+        -> ProviderResult<Vec<u8>>;
+    fn decrypt(&self, alg_id: u32, iv: &[u8], padding: u32, data: &[u8])
+        -> ProviderResult<Vec<u8>>;
 }
 
 /// A streaming digest. Dropping the guard closes both the hash and its device.

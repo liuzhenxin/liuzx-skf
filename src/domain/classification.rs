@@ -102,7 +102,10 @@ mod tests {
 
     #[test]
     fn classifying_a_known_method_returns_its_class() {
-        assert_eq!(classify("DeleteContainer"), Some(OperationClass::Destructive));
+        assert_eq!(
+            classify("DeleteContainer"),
+            Some(OperationClass::Destructive)
+        );
         assert_eq!(classify("EnumDevice"), Some(OperationClass::ReadOnly));
         assert_eq!(classify("SetLabel"), Some(OperationClass::Destructive));
     }

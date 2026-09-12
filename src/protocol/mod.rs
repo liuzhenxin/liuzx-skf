@@ -84,7 +84,8 @@ mod tests {
     #[test]
     fn a_request_without_an_id_is_accepted() {
         let request: RpcRequest =
-            serde_json::from_str(r#"{"method":"SetLanguage","params":["EN"]}"#).expect("deserialize");
+            serde_json::from_str(r#"{"method":"SetLanguage","params":["EN"]}"#)
+                .expect("deserialize");
         assert_eq!(request.params.len(), 1);
         assert!(request.id.is_none());
     }
@@ -96,7 +97,11 @@ mod tests {
         assert!(response.message.is_none());
 
         let text = serde_json::to_string(&response).expect("serialize");
-        assert!(!text.contains("message"), "a success must not carry a message: {}", text);
+        assert!(
+            !text.contains("message"),
+            "a success must not carry a message: {}",
+            text
+        );
         assert!(!text.contains("error\":1"));
     }
 

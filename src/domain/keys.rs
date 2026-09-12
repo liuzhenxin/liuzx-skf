@@ -13,8 +13,8 @@ use crate::session::SessionState;
 use crate::skf::types::{SGD_SM2_1, ULONG};
 
 use super::{
-    authorized, ecc_blob, load_failed, load_failed_localized, native_code,
-    note_device_unavailable, rsa_blob, struct_bytes, ServerContext,
+    authorized, ecc_blob, load_failed, load_failed_localized, native_code, note_device_unavailable,
+    rsa_blob, struct_bytes, ServerContext,
 };
 
 /// `GenECCKeyPair` — params `[provider, device, app, container, algId]`.
@@ -58,9 +58,11 @@ impl GenECCKeyPair {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -82,11 +84,7 @@ impl GenECCKeyPair {
         };
 
         if authorized(state, provider_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         let container = match application.open_container(cont_name) {
@@ -168,9 +166,11 @@ impl GenRSAKeyPair {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -192,11 +192,7 @@ impl GenRSAKeyPair {
         };
 
         if authorized(state, provider_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         let container = match application.open_container(cont_name) {

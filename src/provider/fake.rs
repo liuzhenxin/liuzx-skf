@@ -178,7 +178,12 @@ impl SkfProvider for FakeSkfProvider {
 
     fn wait_for_event(&self, _buf_len: usize) -> ProviderResult<(String, u32)> {
         self.inner.begin(Operation::WaitForEvent)?;
-        let event = self.inner.pending_event.lock().expect("pending event").take();
+        let event = self
+            .inner
+            .pending_event
+            .lock()
+            .expect("pending event")
+            .take();
         match event {
             Some(e) => Ok((e.device_name, e.event_code)),
             // Mirrors the vendor behaviour with no device attached: a non-zero code
@@ -475,7 +480,12 @@ impl DigestGuard for FakeDigest {
 
     fn finalize(&self) -> ProviderResult<Vec<u8>> {
         self.inner.begin(Operation::DigestFinal)?;
-        Ok(self.inner.digest_output.lock().expect("digest output").clone())
+        Ok(self
+            .inner
+            .digest_output
+            .lock()
+            .expect("digest output")
+            .clone())
     }
 }
 
@@ -516,7 +526,10 @@ mod tests {
         );
 
         let second = provider.open_device("dev-a");
-        assert!(second.is_ok(), "the queue must be consumed, not permanently poisoned");
+        assert!(
+            second.is_ok(),
+            "the queue must be consumed, not permanently poisoned"
+        );
     }
 
     #[test]
@@ -563,10 +576,15 @@ mod tests {
     #[test]
     fn blocking_injection_delays_but_still_succeeds() {
         let provider = FakeSkfProvider::with_devices("FAKE", vec!["dev-a".into()]);
-        provider.fail_next(Operation::EnumDevices, SkfError::Blocking(Duration::from_millis(50)));
+        provider.fail_next(
+            Operation::EnumDevices,
+            SkfError::Blocking(Duration::from_millis(50)),
+        );
 
         let started = std::time::Instant::now();
-        let devices = provider.enum_devices(true).expect("must succeed after the delay");
+        let devices = provider
+            .enum_devices(true)
+            .expect("must succeed after the delay");
         let elapsed = started.elapsed();
 
         assert_eq!(devices.len(), 1);

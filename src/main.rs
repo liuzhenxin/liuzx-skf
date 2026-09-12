@@ -1,18 +1,21 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use base64::prelude::*;
 use libloading::Library;
 use serde::Serialize;
-use skf_service::skf::api::SkfApi;
-use skf_service::skf::types::{CHAR, ULONG, BYTE, SAR_OK, DEVHANDLE, HAPPLICATION, HCONTAINER, HANDLE, ECCSIGNATUREBLOB, ECCPUBLICKEYBLOB, RSAPUBLICKEYBLOB, SGD_SM3, SGD_SM4_ECB, SGD_SM4_CBC, DEVINFO};
 use skf_service::crypto::*;
-use base64::prelude::*;
+use skf_service::skf::api::SkfApi;
+use skf_service::skf::types::{
+    BYTE, CHAR, DEVHANDLE, DEVINFO, ECCPUBLICKEYBLOB, ECCSIGNATUREBLOB, HANDLE, HAPPLICATION,
+    HCONTAINER, RSAPUBLICKEYBLOB, SAR_OK, SGD_SM3, SGD_SM4_CBC, SGD_SM4_ECB, ULONG,
+};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use x509_parser::prelude::*;
 
 use skf_service::config::SkfConfig;
+use skf_service::domain::ServerContext;
 use skf_service::protocol::{Language, RpcRequest, RpcResponse};
 use skf_service::provider::native::NativeSkfProvider;
 use skf_service::provider::{ProviderError, SkfProvider};
-use skf_service::domain::ServerContext;
 use skf_service::session::auth::{AuthKey, AuthRejection};
 use skf_service::session::{SessionGuard, SessionRegistry, SessionState};
 
@@ -30,7 +33,6 @@ impl SkfContext {
             config,
             provider,
             apis: RwLock::new(HashMap::new()),
-
         }
     }
 
@@ -67,7 +69,7 @@ impl SkfContext {
 
         let lib_path = skf_service::config::expand_env_vars(raw_path);
         println!("Loading SKF library for {} from: {}", provider, lib_path);
-        
+
         // Safety: Loading foreign libraries is inherently unsafe.
         let lib = unsafe { Library::new(&lib_path) }.map_err(|e| {
             anyhow::anyhow!(
@@ -77,7 +79,7 @@ impl SkfContext {
                 e
             )
         })?;
-            
+
         let api = Arc::new(SkfApi::new(lib));
 
         // 3. Cache (write)
@@ -275,11 +277,7 @@ struct JsonRpcSessionFactory {
 impl skf_service::server::SessionFactory for JsonRpcSessionFactory {
     fn create(&self) -> Box<dyn skf_service::server::Session> {
         let guard = SessionGuard::create(&self.registry, SessionState::new(self.ttl));
-        Box::new(JsonRpcSession::new(
-            Arc::clone(&self.ctx),
-            guard,
-            self.ttl,
-        ))
+        Box::new(JsonRpcSession::new(Arc::clone(&self.ctx), guard, self.ttl))
     }
 }
 
@@ -347,7 +345,6 @@ fn temp_file_path(file_name: &str) -> String {
         .into_owned()
 }
 
-
 /// Map a provider failure onto the pre-refactor RPC error shape.
 ///
 /// The recorded v0.2.0 contract asserts on these codes and messages, so the
@@ -367,7 +364,6 @@ fn provider_load_failed(
     };
     RpcResponse::err(-5, msg, id)
 }
-
 
 /// Clear this session's authorization for a device an operation just found missing.
 ///
@@ -414,7 +410,11 @@ fn handle_request(
 
     let id = req.id.clone();
 
-    eprintln!("[DEBUG] Received method: '{}', params count: {}", req.method, req.params.len());
+    eprintln!(
+        "[DEBUG] Received method: '{}', params count: {}",
+        req.method,
+        req.params.len()
+    );
 
     match req.method.as_str() {
         "SetLanguage" => {
@@ -425,65 +425,72 @@ fn handle_request(
                 };
                 RpcResponse::ok(serde_json::json!("OK"), id)
             } else {
-                 RpcResponse::err(-2, "Missing Language Code".into(), id)
+                RpcResponse::err(-2, "Missing Language Code".into(), id)
             }
-        },
+        }
         "WaitForDevEvent" => {
-             let provider = req.params.get(0)
+            let provider = req
+                .params
+                .get(0)
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
 
-             if provider == ctx.config.default {
-                 // The whole dispatcher already runs on the blocking pool, so the
-                 // blocking vendor wait can be called directly. It must not take
-                 // the FFI gate (it does not) or it would deadlock against
-                 // CancelWaitForDevEvent. The message format ({:#X}, unpadded) is
-                 // reproduced exactly because the recorded contract asserts on it.
-                 return match ctx.provider.wait_for_event(256) {
-                     Ok((device_name, event)) => RpcResponse::ok(
-                         serde_json::json!({ "deviceName": device_name, "event": event }),
-                         id,
-                     ),
-                     Err(ProviderError::Native { code, .. }) => {
-                         RpcResponse::err(code as i32, format!("WaitForDevEvent failed: {:#X}", code), id)
-                     }
-                     Err(e) => provider_load_failed(&e, lang, id),
-                 };
-             }
+            if provider == ctx.config.default {
+                // The whole dispatcher already runs on the blocking pool, so the
+                // blocking vendor wait can be called directly. It must not take
+                // the FFI gate (it does not) or it would deadlock against
+                // CancelWaitForDevEvent. The message format ({:#X}, unpadded) is
+                // reproduced exactly because the recorded contract asserts on it.
+                return match ctx.provider.wait_for_event(256) {
+                    Ok((device_name, event)) => RpcResponse::ok(
+                        serde_json::json!({ "deviceName": device_name, "event": event }),
+                        id,
+                    ),
+                    Err(ProviderError::Native { code, .. }) => RpcResponse::err(
+                        code as i32,
+                        format!("WaitForDevEvent failed: {:#X}", code),
+                        id,
+                    ),
+                    Err(e) => provider_load_failed(&e, lang, id),
+                };
+            }
 
-             let api = match ctx.get_api(provider) {
-                 Ok(a) => a,
-                 Err(e) => {
-                     let msg = match lang {
-                         Language::CN => format!("加载库失败: {}", e),
-                         Language::EN => format!("Load Lib Failed: {}", e),
-                     };
-                     return RpcResponse::err(-1, msg, id);
-                 }
-             };
+            let api = match ctx.get_api(provider) {
+                Ok(a) => a,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-1, msg, id);
+                }
+            };
 
-             let mut dev_name = [0u8; 256];
-             let mut dev_name_len = 256;
-             let mut event = 0;
-             let rv = api.wait_for_dev_event(
-                 dev_name.as_mut_ptr() as *mut CHAR,
-                 &mut dev_name_len,
-                 &mut event,
-             );
-             if rv == SAR_OK {
-                 let len_usize = dev_name_len as usize;
-                 let actual_len = if len_usize <= 256 { len_usize } else { 256 };
-                 let name_str = String::from_utf8_lossy(&dev_name[..actual_len])
-                     .trim_end_matches(char::from(0))
-                     .to_string();
-                 RpcResponse::ok(serde_json::json!({ "deviceName": name_str, "event": event }), id)
-             } else {
-                 RpcResponse::err(rv as i32, format!("WaitForDevEvent failed: {:#X}", rv), id)
-             }
-        },
+            let mut dev_name = [0u8; 256];
+            let mut dev_name_len = 256;
+            let mut event = 0;
+            let rv = api.wait_for_dev_event(
+                dev_name.as_mut_ptr() as *mut CHAR,
+                &mut dev_name_len,
+                &mut event,
+            );
+            if rv == SAR_OK {
+                let len_usize = dev_name_len as usize;
+                let actual_len = if len_usize <= 256 { len_usize } else { 256 };
+                let name_str = String::from_utf8_lossy(&dev_name[..actual_len])
+                    .trim_end_matches(char::from(0))
+                    .to_string();
+                RpcResponse::ok(
+                    serde_json::json!({ "deviceName": name_str, "event": event }),
+                    id,
+                )
+            } else {
+                RpcResponse::err(rv as i32, format!("WaitForDevEvent failed: {:#X}", rv), id)
+            }
+        }
         "EnumProvider" => {
             let vpid_opt = req.params.get(0).and_then(|v| v.as_str());
-            
+
             match vpid_opt {
                 Some(vpid) if !vpid.is_empty() => {
                     if let Some(provider) = ctx.config.vendor.get(vpid) {
@@ -495,7 +502,7 @@ fn handle_request(
                         };
                         RpcResponse::err(-4, msg, id)
                     }
-                },
+                }
                 _ => {
                     let mut providers: Vec<String> = ctx.config.libs.keys().cloned().collect();
                     let default_provider = &ctx.config.default;
@@ -506,68 +513,72 @@ fn handle_request(
                     RpcResponse::ok(serde_json::json!(providers), id)
                 }
             }
-        },
+        }
         "EnumDevice" => {
-             let provider = req.params.get(0)
+            let provider = req
+                .params
+                .get(0)
                 .and_then(|v| v.as_str())
                 .unwrap_or(&ctx.config.default);
 
-             // Phase 1 routes the default alias through the provider. A request
-             // naming another alias keeps the original direct path, so behaviour
-             // is unchanged for providers the factory does not build.
-             if provider == ctx.config.default {
-                 return match ctx.provider.enum_devices(true) {
-                     Ok(names) => RpcResponse::ok(serde_json::json!(names), id),
-                     Err(ProviderError::Native { code, .. }) => {
-                         let msg = match lang {
-                             Language::CN => "枚举设备获取大小失败",
-                             Language::EN => "EnumDev failed size check",
-                         };
-                         RpcResponse::err(code as i32, msg.into(), id)
-                     }
-                     Err(e) => provider_load_failed(&e, lang, id),
-                 };
-             }
-             let api = match ctx.get_api(provider) {
-                 Ok(a) => a,
-                 Err(e) => {
-                     let msg = match lang {
-                         Language::CN => format!("加载库失败: {}", e),
-                         Language::EN => format!("Load Lib Failed: {}", e),
-                     };
-                     return RpcResponse::err(-5, msg, id);
-                 }
-             };
- 
-             let mut size: ULONG = 0;
-             let ret = api.enum_dev(1, std::ptr::null_mut(), &mut size);
-             if ret != SAR_OK || size == 0 {
-                 if ret == SAR_OK {
-                     return RpcResponse::ok(serde_json::json!(Vec::<String>::new()), id);
-                 }
-                 let msg = match lang {
-                     Language::CN => "枚举设备获取大小失败",
-                     Language::EN => "EnumDev failed size check",
-                 };
-                 return RpcResponse::err(ret as i32, msg.into(), id);
-             }
-             let mut buf = vec![0u8 as CHAR; size as usize];
-             let ret = api.enum_dev(1, buf.as_mut_ptr(), &mut size);
-             if ret == SAR_OK {
-                 let raw_names = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize) };
-                 let names: Vec<String> = raw_names.split(|&c| c == 0)
-                     .filter(|s| !s.is_empty())
-                     .map(|s| String::from_utf8_lossy(s).to_string())
-                     .collect();
-                 RpcResponse::ok(serde_json::json!(names), id)
-             } else {
-                 let msg = match lang {
-                     Language::CN => "枚举设备失败",
-                     Language::EN => "EnumDev failed",
-                 };
-                 RpcResponse::err(ret as i32, msg.into(), id)
-             }
-        },
+            // Phase 1 routes the default alias through the provider. A request
+            // naming another alias keeps the original direct path, so behaviour
+            // is unchanged for providers the factory does not build.
+            if provider == ctx.config.default {
+                return match ctx.provider.enum_devices(true) {
+                    Ok(names) => RpcResponse::ok(serde_json::json!(names), id),
+                    Err(ProviderError::Native { code, .. }) => {
+                        let msg = match lang {
+                            Language::CN => "枚举设备获取大小失败",
+                            Language::EN => "EnumDev failed size check",
+                        };
+                        RpcResponse::err(code as i32, msg.into(), id)
+                    }
+                    Err(e) => provider_load_failed(&e, lang, id),
+                };
+            }
+            let api = match ctx.get_api(provider) {
+                Ok(a) => a,
+                Err(e) => {
+                    let msg = match lang {
+                        Language::CN => format!("加载库失败: {}", e),
+                        Language::EN => format!("Load Lib Failed: {}", e),
+                    };
+                    return RpcResponse::err(-5, msg, id);
+                }
+            };
+
+            let mut size: ULONG = 0;
+            let ret = api.enum_dev(1, std::ptr::null_mut(), &mut size);
+            if ret != SAR_OK || size == 0 {
+                if ret == SAR_OK {
+                    return RpcResponse::ok(serde_json::json!(Vec::<String>::new()), id);
+                }
+                let msg = match lang {
+                    Language::CN => "枚举设备获取大小失败",
+                    Language::EN => "EnumDev failed size check",
+                };
+                return RpcResponse::err(ret as i32, msg.into(), id);
+            }
+            let mut buf = vec![0u8 as CHAR; size as usize];
+            let ret = api.enum_dev(1, buf.as_mut_ptr(), &mut size);
+            if ret == SAR_OK {
+                let raw_names =
+                    unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize) };
+                let names: Vec<String> = raw_names
+                    .split(|&c| c == 0)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| String::from_utf8_lossy(s).to_string())
+                    .collect();
+                RpcResponse::ok(serde_json::json!(names), id)
+            } else {
+                let msg = match lang {
+                    Language::CN => "枚举设备失败",
+                    Language::EN => "EnumDev failed",
+                };
+                RpcResponse::err(ret as i32, msg.into(), id)
+            }
+        }
         "ConnectDev" => {
             let name = match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(name) => name,
@@ -591,574 +602,780 @@ fn handle_request(
                 }
                 Err(e) => provider_load_failed(&e, lang, id),
             }
-        },
+        }
         "EnumApplication" => {
-             let provider = req.params.get(0).and_then(|v| v.as_str()).unwrap_or(&ctx.config.default);
-             let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
-                 Some(d) => d,
-                 None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
-             };
+            let provider = req
+                .params
+                .get(0)
+                .and_then(|v| v.as_str())
+                .unwrap_or(&ctx.config.default);
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
 
-             let api = match ctx.get_api(provider) {
-                 Ok(a) => a,
-                 Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
-             };
+            let api = match ctx.get_api(provider) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
 
-             let c_dev = std::ffi::CString::new(dev_name).unwrap();
-             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
-             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
-             if ret != SAR_OK {
-                 return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
-             }
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
+            }
 
-             let mut size: ULONG = 0;
-             let ret = api.enum_application(h_dev, std::ptr::null_mut(), &mut size);
-             if ret != SAR_OK || size == 0 {
-                 api.dis_connect_dev(h_dev);
-                 if ret == SAR_OK {
-                     return RpcResponse::ok(serde_json::json!(Vec::<String>::new()), id);
-                 }
-                 let msg = match lang {
-                     Language::CN => "枚举应用获取大小失败",
-                     Language::EN => "EnumApplication failed size check",
-                 };
-                 return RpcResponse::err(ret as i32, msg.into(), id);
-             }
-             let mut buf = vec![0u8 as CHAR; size as usize];
-             let ret = api.enum_application(h_dev, buf.as_mut_ptr(), &mut size);
-             api.dis_connect_dev(h_dev);
-             
-             if ret == SAR_OK {
-                 let raw_names = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize) };
-                 let names: Vec<String> = raw_names.split(|&c| c == 0)
-                     .filter(|s| !s.is_empty())
-                     .map(|s| String::from_utf8_lossy(s).to_string())
-                     .collect();
-                 RpcResponse::ok(serde_json::json!(names), id)
-             } else {
-                 let msg = match lang {
-                     Language::CN => "枚举应用失败",
-                     Language::EN => "EnumApplication failed",
-                 };
-                 RpcResponse::err(ret as i32, msg.into(), id)
-             }
-        },
+            let mut size: ULONG = 0;
+            let ret = api.enum_application(h_dev, std::ptr::null_mut(), &mut size);
+            if ret != SAR_OK || size == 0 {
+                api.dis_connect_dev(h_dev);
+                if ret == SAR_OK {
+                    return RpcResponse::ok(serde_json::json!(Vec::<String>::new()), id);
+                }
+                let msg = match lang {
+                    Language::CN => "枚举应用获取大小失败",
+                    Language::EN => "EnumApplication failed size check",
+                };
+                return RpcResponse::err(ret as i32, msg.into(), id);
+            }
+            let mut buf = vec![0u8 as CHAR; size as usize];
+            let ret = api.enum_application(h_dev, buf.as_mut_ptr(), &mut size);
+            api.dis_connect_dev(h_dev);
+
+            if ret == SAR_OK {
+                let raw_names =
+                    unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize) };
+                let names: Vec<String> = raw_names
+                    .split(|&c| c == 0)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| String::from_utf8_lossy(s).to_string())
+                    .collect();
+                RpcResponse::ok(serde_json::json!(names), id)
+            } else {
+                let msg = match lang {
+                    Language::CN => "枚举应用失败",
+                    Language::EN => "EnumApplication failed",
+                };
+                RpcResponse::err(ret as i32, msg.into(), id)
+            }
+        }
         "EnumContainer" => {
-             // Params: [providerName, deviceName, appName]
-             let provider = req.params.get(0).and_then(|v| v.as_str()).unwrap_or(&ctx.config.default);
-             let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
-                 Some(d) => d,
-                 None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
-             };
-             let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
-                 Some(a) => a,
-                 None => return RpcResponse::err(-2, "Missing appName param".into(), id),
-             };
+            // Params: [providerName, deviceName, appName]
+            let provider = req
+                .params
+                .get(0)
+                .and_then(|v| v.as_str())
+                .unwrap_or(&ctx.config.default);
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(a) => a,
+                None => return RpcResponse::err(-2, "Missing appName param".into(), id),
+            };
 
-             let api = match ctx.get_api(provider) {
-                 Ok(a) => a,
-                 Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
-             };
+            let api = match ctx.get_api(provider) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
 
-             let c_dev = std::ffi::CString::new(dev_name).unwrap();
-             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
-             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
-             if ret != SAR_OK {
-                 return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
-             }
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
+            }
 
-             let c_app = std::ffi::CString::new(app_name).unwrap();
-             let mut h_app: HAPPLICATION = std::ptr::null_mut();
-             let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
-             if ret != SAR_OK {
-                 api.dis_connect_dev(h_dev);
-                 // A missing application is how a removed device surfaces here.
-                 device_unavailable(state, provider, dev_name);
-                 return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
-             }
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, provider, dev_name);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("OpenApplication failed: 0x{:08X}", ret),
+                    id,
+                );
+            }
 
-             let mut size: ULONG = 0;
-             let ret = api.enum_container(h_app, std::ptr::null_mut(), &mut size);
-             if ret != SAR_OK || size == 0 {
-                 api.close_application(h_app);
-                 api.dis_connect_dev(h_dev);
-                 if ret == SAR_OK {
-                     return RpcResponse::ok(serde_json::json!(Vec::<String>::new()), id);
-                 }
-                 let msg = match lang {
-                     Language::CN => "枚举容器获取大小失败",
-                     Language::EN => "EnumContainer failed size check",
-                 };
-                 return RpcResponse::err(ret as i32, msg.into(), id);
-             }
-             
-             let mut buf = vec![0u8 as CHAR; size as usize];
-             let ret = api.enum_container(h_app, buf.as_mut_ptr(), &mut size);
-             api.close_application(h_app);
-             api.dis_connect_dev(h_dev);
-             
-             if ret == SAR_OK {
-                 let raw_names = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize) };
-                 let names: Vec<String> = raw_names.split(|&c| c == 0)
-                     .filter(|s| !s.is_empty())
-                     .map(|s| String::from_utf8_lossy(s).to_string())
-                     .collect();
-                 RpcResponse::ok(serde_json::json!(names), id)
-             } else {
-                 let msg = match lang {
-                     Language::CN => "枚举容器失败",
-                     Language::EN => "EnumContainer failed",
-                 };
-                 RpcResponse::err(ret as i32, msg.into(), id)
-             }
-        },
+            let mut size: ULONG = 0;
+            let ret = api.enum_container(h_app, std::ptr::null_mut(), &mut size);
+            if ret != SAR_OK || size == 0 {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                if ret == SAR_OK {
+                    return RpcResponse::ok(serde_json::json!(Vec::<String>::new()), id);
+                }
+                let msg = match lang {
+                    Language::CN => "枚举容器获取大小失败",
+                    Language::EN => "EnumContainer failed size check",
+                };
+                return RpcResponse::err(ret as i32, msg.into(), id);
+            }
+
+            let mut buf = vec![0u8 as CHAR; size as usize];
+            let ret = api.enum_container(h_app, buf.as_mut_ptr(), &mut size);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
+
+            if ret == SAR_OK {
+                let raw_names =
+                    unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize) };
+                let names: Vec<String> = raw_names
+                    .split(|&c| c == 0)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| String::from_utf8_lossy(s).to_string())
+                    .collect();
+                RpcResponse::ok(serde_json::json!(names), id)
+            } else {
+                let msg = match lang {
+                    Language::CN => "枚举容器失败",
+                    Language::EN => "EnumContainer failed",
+                };
+                RpcResponse::err(ret as i32, msg.into(), id)
+            }
+        }
         "DeleteContainer" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::DeleteContainer::handle(ctx, state, &params, lang);
-        },
+            return skf_service::domain::container::DeleteContainer::handle(
+                ctx, state, &params, lang,
+            );
+        }
         "IssueCertificate" => {
-             // Params: [csr_base64_or_pem, double?]
-             let csr_str = match req.params.get(0).and_then(|v| v.as_str()) {
-                 Some(c) => c,
-                 None => return RpcResponse::err(-2, "Missing CSR param".into(), id),
-             };
-             let double = req.params.get(1).and_then(|v| v.as_bool()).unwrap_or(false);
-             
-             let csr_bytes = if csr_str.contains("-----BEGIN") {
-                 csr_str.as_bytes().to_vec()
-             } else {
-                 match base64::engine::general_purpose::STANDARD.decode(csr_str) {
-                     Ok(b) => b,
-                     Err(e) => return RpcResponse::err(-3, format!("Invalid base64: {}", e), id),
-                 }
-             };
+            // Params: [csr_base64_or_pem, double?]
+            let csr_str = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(c) => c,
+                None => return RpcResponse::err(-2, "Missing CSR param".into(), id),
+            };
+            let double = req.params.get(1).and_then(|v| v.as_bool()).unwrap_or(false);
 
-             // Generate a unique ID for the temp files
-             let req_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-             let csr_path = temp_file_path(&format!("req_{}.csr", req_id));
-             let crt_path = temp_file_path(&format!("cert_{}.crt", req_id));
-             let ca_key_path = temp_file_path("skf_ca.key");
-             let ca_crt_path = temp_file_path("skf_ca.crt");
-             
-             if let Err(e) = std::fs::write(&csr_path, &csr_bytes) {
-                 return RpcResponse::err(-4, format!("Failed to write CSR to disk: {}", e), id);
-             }
+            let csr_bytes = if csr_str.contains("-----BEGIN") {
+                csr_str.as_bytes().to_vec()
+            } else {
+                match base64::engine::general_purpose::STANDARD.decode(csr_str) {
+                    Ok(b) => b,
+                    Err(e) => return RpcResponse::err(-3, format!("Invalid base64: {}", e), id),
+                }
+            };
 
-             // Extract subject and public key from CSR
-             let csr_der_parse = if csr_str.contains("-----BEGIN") {
-                 let b64 = csr_str
-                     .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
-                     .replace("-----END CERTIFICATE REQUEST-----", "")
-                     .replace("-----BEGIN NEW CERTIFICATE REQUEST-----", "")
-                     .replace("-----END NEW CERTIFICATE REQUEST-----", "")
-                     .replace("\n", "").replace("\r", "");
-                 base64::engine::general_purpose::STANDARD.decode(b64).unwrap_or_default()
-             } else {
-                 csr_bytes.clone()
-             };
+            // Generate a unique ID for the temp files
+            let req_id = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let csr_path = temp_file_path(&format!("req_{}.csr", req_id));
+            let crt_path = temp_file_path(&format!("cert_{}.crt", req_id));
+            let ca_key_path = temp_file_path("skf_ca.key");
+            let ca_crt_path = temp_file_path("skf_ca.crt");
 
-             let mut extracted_subject = "/CN=SKF Generated Cert".to_string();
-             let mut sign_pub_xy = None;
+            if let Err(e) = std::fs::write(&csr_path, &csr_bytes) {
+                return RpcResponse::err(-4, format!("Failed to write CSR to disk: {}", e), id);
+            }
 
-             // Extract subject using OpenSSL
-             let subj_output = std::process::Command::new("openssl")
-                 .args(&["req", "-in", &csr_path, "-noout", "-subject"])
-                 .output();
-             if let Ok(out) = subj_output {
-                 let s = String::from_utf8_lossy(&out.stdout).to_string();
-                 if let Some(pos) = s.find("subject=") {
-                     let subj_part = s[pos + 8..].trim();
-                     if !subj_part.is_empty() {
-                         // Convert "C=CN, ST=Beijing, ..." to "/C=CN/ST=Beijing/..."
-                         let items: Vec<&str> = subj_part.split(", ").collect();
-                         let mut formatted = String::new();
-                         for item in items {
-                             if !item.is_empty() {
-                                 formatted.push('/');
-                                 formatted.push_str(item);
-                             }
-                         }
-                         if !formatted.is_empty() {
-                             extracted_subject = formatted;
-                         }
-                     }
-                 }
-             }
+            // Extract subject and public key from CSR
+            let csr_der_parse = if csr_str.contains("-----BEGIN") {
+                let b64 = csr_str
+                    .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
+                    .replace("-----END CERTIFICATE REQUEST-----", "")
+                    .replace("-----BEGIN NEW CERTIFICATE REQUEST-----", "")
+                    .replace("-----END NEW CERTIFICATE REQUEST-----", "")
+                    .replace("\n", "")
+                    .replace("\r", "");
+                base64::engine::general_purpose::STANDARD
+                    .decode(b64)
+                    .unwrap_or_default()
+            } else {
+                csr_bytes.clone()
+            };
 
-             // Extract SM2 public key if present
-             if let Ok((_, csr)) = x509_parser::certification_request::X509CertificationRequest::from_der(&csr_der_parse) {
-                 let pk_info = &csr.certification_request_info.subject_pki;
-                 let pk_data = &pk_info.subject_public_key.data;
-                 if pk_data.len() >= 65 && pk_data[0] == 0x04 {
-                     sign_pub_xy = Some((pk_data[1..33].to_vec(), pk_data[33..65].to_vec()));
-                 }
-             }
+            let mut extracted_subject = "/CN=SKF Generated Cert".to_string();
+            let mut sign_pub_xy = None;
 
-             // Check if mock CA exists, else generate
-             if !std::path::Path::new(&ca_key_path).exists() {
-                 let _ = std::process::Command::new("openssl")
-                     .args(&["req", "-x509", "-newkey", "rsa:2048", "-keyout", &ca_key_path, "-out", &ca_crt_path, "-days", "3650", "-nodes", "-subj", "/CN=SKF Demo CA"])
-                     .output();
-             }
+            // Extract subject using OpenSSL
+            let subj_output = std::process::Command::new("openssl")
+                .args(&["req", "-in", &csr_path, "-noout", "-subject"])
+                .output();
+            if let Ok(out) = subj_output {
+                let s = String::from_utf8_lossy(&out.stdout).to_string();
+                if let Some(pos) = s.find("subject=") {
+                    let subj_part = s[pos + 8..].trim();
+                    if !subj_part.is_empty() {
+                        // Convert "C=CN, ST=Beijing, ..." to "/C=CN/ST=Beijing/..."
+                        let items: Vec<&str> = subj_part.split(", ").collect();
+                        let mut formatted = String::new();
+                        for item in items {
+                            if !item.is_empty() {
+                                formatted.push('/');
+                                formatted.push_str(item);
+                            }
+                        }
+                        if !formatted.is_empty() {
+                            extracted_subject = formatted;
+                        }
+                    }
+                }
+            }
 
-             // Extract public key from CSR (SM2 CSRs require distid for signature verification)
-             let pub_key_path = temp_file_path(&format!("pub_{}.pem", req_id));
-             let _ = std::process::Command::new("openssl")
-                 .args(&["req", "-in", &csr_path, "-pubkey", "-noout", "-vfyopt", "distid:1234567812345678", "-out", &pub_key_path])
-                 .output();
+            // Extract SM2 public key if present
+            if let Ok((_, csr)) =
+                x509_parser::certification_request::X509CertificationRequest::from_der(
+                    &csr_der_parse,
+                )
+            {
+                let pk_info = &csr.certification_request_info.subject_pki;
+                let pk_data = &pk_info.subject_public_key.data;
+                if pk_data.len() >= 65 && pk_data[0] == 0x04 {
+                    sign_pub_xy = Some((pk_data[1..33].to_vec(), pk_data[33..65].to_vec()));
+                }
+            }
 
-             // Generate a dummy RSA CSR
-             let dummy_csr_path = temp_file_path(&format!("dummy_{}.csr", req_id));
-             let dummy_key_path = temp_file_path(&format!("dummy_{}.key", req_id));
-             let _ = std::process::Command::new("openssl")
-                 .args(&["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", &dummy_key_path, "-out", &dummy_csr_path, "-subj", &extracted_subject])
-                 .output();
+            // Check if mock CA exists, else generate
+            if !std::path::Path::new(&ca_key_path).exists() {
+                let _ = std::process::Command::new("openssl")
+                    .args(&[
+                        "req",
+                        "-x509",
+                        "-newkey",
+                        "rsa:2048",
+                        "-keyout",
+                        &ca_key_path,
+                        "-out",
+                        &ca_crt_path,
+                        "-days",
+                        "3650",
+                        "-nodes",
+                        "-subj",
+                        "/CN=SKF Demo CA",
+                    ])
+                    .output();
+            }
 
-             // Issue sign certificate
-             let output = std::process::Command::new("openssl")
-                 .args(&["x509", "-req", "-in", &dummy_csr_path, "-CA", &ca_crt_path, "-CAkey", &ca_key_path, "-CAcreateserial", "-out", &crt_path, "-days", "3650", "-force_pubkey", &pub_key_path])
-                 .output();
+            // Extract public key from CSR (SM2 CSRs require distid for signature verification)
+            let pub_key_path = temp_file_path(&format!("pub_{}.pem", req_id));
+            let _ = std::process::Command::new("openssl")
+                .args(&[
+                    "req",
+                    "-in",
+                    &csr_path,
+                    "-pubkey",
+                    "-noout",
+                    "-vfyopt",
+                    "distid:1234567812345678",
+                    "-out",
+                    &pub_key_path,
+                ])
+                .output();
 
-             let sign_cert_pem = match output {
-                 Ok(out) if out.status.success() => {
-                     std::fs::read_to_string(&crt_path).unwrap_or_default()
-                 },
-                 Ok(out) => {
-                     // Cleanup
-                     let _ = std::fs::remove_file(&csr_path);
-                     let _ = std::fs::remove_file(&pub_key_path);
-                     let _ = std::fs::remove_file(&dummy_csr_path);
-                     let _ = std::fs::remove_file(&dummy_key_path);
-                     let _ = std::fs::remove_file(&crt_path);
-                     let err_str = String::from_utf8_lossy(&out.stderr);
-                     return RpcResponse::err(-5, format!("OpenSSL sign failed: {}", err_str), id);
-                 },
-                 Err(e) => {
-                     let _ = std::fs::remove_file(&csr_path);
-                     let _ = std::fs::remove_file(&pub_key_path);
-                     let _ = std::fs::remove_file(&dummy_csr_path);
-                     let _ = std::fs::remove_file(&dummy_key_path);
-                     let _ = std::fs::remove_file(&crt_path);
-                     return RpcResponse::err(-6, format!("Failed to run OpenSSL: {}", e), id);
-                 }
-             };
+            // Generate a dummy RSA CSR
+            let dummy_csr_path = temp_file_path(&format!("dummy_{}.csr", req_id));
+            let dummy_key_path = temp_file_path(&format!("dummy_{}.key", req_id));
+            let _ = std::process::Command::new("openssl")
+                .args(&[
+                    "req",
+                    "-new",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-keyout",
+                    &dummy_key_path,
+                    "-out",
+                    &dummy_csr_path,
+                    "-subj",
+                    &extracted_subject,
+                ])
+                .output();
 
-             if !double {
-                 // Single cert mode - cleanup and return
-                 let _ = std::fs::remove_file(&csr_path);
-                 let _ = std::fs::remove_file(&pub_key_path);
-                 let _ = std::fs::remove_file(&dummy_csr_path);
-                 let _ = std::fs::remove_file(&dummy_key_path);
-                 let _ = std::fs::remove_file(&crt_path);
-                 return RpcResponse::ok(serde_json::json!({
-                     "certificate": sign_cert_pem,
-                     "double": false
-                 }), id);
-             }
+            // Issue sign certificate
+            let output = std::process::Command::new("openssl")
+                .args(&[
+                    "x509",
+                    "-req",
+                    "-in",
+                    &dummy_csr_path,
+                    "-CA",
+                    &ca_crt_path,
+                    "-CAkey",
+                    &ca_key_path,
+                    "-CAcreateserial",
+                    "-out",
+                    &crt_path,
+                    "-days",
+                    "3650",
+                    "-force_pubkey",
+                    &pub_key_path,
+                ])
+                .output();
 
-             // === Double cert mode: generate enc cert + cryptographically valid ENVELOPEDKEYBLOB ===
+            let sign_cert_pem = match output {
+                Ok(out) if out.status.success() => {
+                    std::fs::read_to_string(&crt_path).unwrap_or_default()
+                }
+                Ok(out) => {
+                    // Cleanup
+                    let _ = std::fs::remove_file(&csr_path);
+                    let _ = std::fs::remove_file(&pub_key_path);
+                    let _ = std::fs::remove_file(&dummy_csr_path);
+                    let _ = std::fs::remove_file(&dummy_key_path);
+                    let _ = std::fs::remove_file(&crt_path);
+                    let err_str = String::from_utf8_lossy(&out.stderr);
+                    return RpcResponse::err(-5, format!("OpenSSL sign failed: {}", err_str), id);
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_file(&csr_path);
+                    let _ = std::fs::remove_file(&pub_key_path);
+                    let _ = std::fs::remove_file(&dummy_csr_path);
+                    let _ = std::fs::remove_file(&dummy_key_path);
+                    let _ = std::fs::remove_file(&crt_path);
+                    return RpcResponse::err(-6, format!("Failed to run OpenSSL: {}", e), id);
+                }
+            };
 
-             // 1. Use the sign public key X,Y already extracted from the CSR
+            if !double {
+                // Single cert mode - cleanup and return
+                let _ = std::fs::remove_file(&csr_path);
+                let _ = std::fs::remove_file(&pub_key_path);
+                let _ = std::fs::remove_file(&dummy_csr_path);
+                let _ = std::fs::remove_file(&dummy_key_path);
+                let _ = std::fs::remove_file(&crt_path);
+                return RpcResponse::ok(
+                    serde_json::json!({
+                        "certificate": sign_cert_pem,
+                        "double": false
+                    }),
+                    id,
+                );
+            }
 
-             let (sign_pub_x, sign_pub_y) = match sign_pub_xy {
-                 Some((x, y)) => (x, y),
-                 None => {
-                     let _ = std::fs::remove_file(&csr_path);
-                     let _ = std::fs::remove_file(&pub_key_path);
-                     let _ = std::fs::remove_file(&dummy_csr_path);
-                     let _ = std::fs::remove_file(&dummy_key_path);
-                     let _ = std::fs::remove_file(&crt_path);
-                     return RpcResponse::err(-7, "Failed to extract sign public key from CSR".into(), id);
-                 }
-             };
+            // === Double cert mode: generate enc cert + cryptographically valid ENVELOPEDKEYBLOB ===
 
-             // 2. Generate SM2 enc key pair using smcrypto
-             let (enc_sk_hex, enc_pk_hex) = smcrypto::sm2::gen_keypair();
-             // enc_pk_hex is X||Y hex (without 04 prefix), 128 hex chars = 64 bytes
-             let enc_pk_bytes = hex_to_bytes(&enc_pk_hex);
-             let enc_sk_bytes = hex_to_bytes(&enc_sk_hex);
-             let enc_pub_x = if enc_pk_bytes.len() >= 64 { &enc_pk_bytes[..32] } else { &[0u8; 32][..] };
-             let enc_pub_y = if enc_pk_bytes.len() >= 64 { &enc_pk_bytes[32..64] } else { &[0u8; 32][..] };
+            // 1. Use the sign public key X,Y already extracted from the CSR
 
-             // 3. Generate enc certificate using OpenSSL with the smcrypto-generated public key
-             // Write the enc public key as PEM for OpenSSL
-             let enc_pub_pem_path = temp_file_path(&format!("enc_pub_{}.pem", req_id));
-             let enc_crt_path = temp_file_path(&format!("enc_{}.crt", req_id));
-             {
-                 // Build SubjectPublicKeyInfo DER for SM2 key
-                 let mut point = vec![0x04u8]; // uncompressed
-                 point.extend_from_slice(enc_pub_x);
-                 point.extend_from_slice(enc_pub_y);
-                 // Write as PEM via openssl
-                 let enc_key_der_path = temp_file_path(&format!("enc_raw_{}.bin", req_id));
-                 let tmp_key_path = temp_file_path(&format!("tmpkey_{}.pem", req_id));
-                 let _ = std::fs::write(&enc_key_der_path, &point);
-                 // Use openssl to convert raw point to PEM public key - use EC param file
-                 let _ = std::process::Command::new("openssl")
-                     .args(&["ecparam", "-name", "SM2", "-genkey", "-noout", "-out", &tmp_key_path])
-                     .output();
-                 let _ = std::process::Command::new("openssl")
-                     .args(&["ec", "-in", &tmp_key_path, "-pubout", "-out", &enc_pub_pem_path])
-                     .output();
-                 let _ = std::fs::remove_file(&enc_key_der_path);
-                 let _ = std::fs::remove_file(&tmp_key_path);
-             }
-             // Issue enc certificate (use the sign cert's dummy approach, inject enc pubkey)
-             let dummy2_csr_path = temp_file_path(&format!("dummy2_{}.csr", req_id));
-             let dummy2_key_path = temp_file_path(&format!("dummy2_{}.key", req_id));
-             let _ = std::process::Command::new("openssl")
-                 .args(&["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", &dummy2_key_path, "-out", &dummy2_csr_path, "-subj", &extracted_subject])
-                 .output();
-             // For the enc cert, just use the sign cert PEM as we can't easily inject the smcrypto pubkey through openssl
-             // Instead, let's issue a second cert with the same dummy approach - the cert content doesn't need to match the ENVELOPEDKEYBLOB pubkey strictly for demo
-             let _ = std::process::Command::new("openssl")
-                 .args(&["x509", "-req", "-in", &dummy2_csr_path, "-CA", &ca_crt_path, "-CAkey", &ca_key_path, "-CAcreateserial", "-out", &enc_crt_path, "-days", "3650"])
-                 .output();
+            let (sign_pub_x, sign_pub_y) = match sign_pub_xy {
+                Some((x, y)) => (x, y),
+                None => {
+                    let _ = std::fs::remove_file(&csr_path);
+                    let _ = std::fs::remove_file(&pub_key_path);
+                    let _ = std::fs::remove_file(&dummy_csr_path);
+                    let _ = std::fs::remove_file(&dummy_key_path);
+                    let _ = std::fs::remove_file(&crt_path);
+                    return RpcResponse::err(
+                        -7,
+                        "Failed to extract sign public key from CSR".into(),
+                        id,
+                    );
+                }
+            };
 
-             let enc_cert_pem = std::fs::read_to_string(&enc_crt_path).unwrap_or_default();
+            // 2. Generate SM2 enc key pair using smcrypto
+            let (enc_sk_hex, enc_pk_hex) = smcrypto::sm2::gen_keypair();
+            // enc_pk_hex is X||Y hex (without 04 prefix), 128 hex chars = 64 bytes
+            let enc_pk_bytes = hex_to_bytes(&enc_pk_hex);
+            let enc_sk_bytes = hex_to_bytes(&enc_sk_hex);
+            let enc_pub_x = if enc_pk_bytes.len() >= 64 {
+                &enc_pk_bytes[..32]
+            } else {
+                &[0u8; 32][..]
+            };
+            let enc_pub_y = if enc_pk_bytes.len() >= 64 {
+                &enc_pk_bytes[32..64]
+            } else {
+                &[0u8; 32][..]
+            };
 
-             // 4. Generate random 16-byte SM4 session key
-             use rand::Rng;
-             let mut rng = rand::thread_rng();
-             let mut session_key = [0u8; 16];
-             rng.fill(&mut session_key);
-             
-             // 5. SM4-ECB encrypt the enc private key with the session key
-             // The token decrypts exactly 64 bytes of cbEncryptedPriKey. 
-             // Produce a 64-byte plaintext by padding the 32-byte private key with zeroes at the front.
-             let mut plain_sk = [0u8; 64];
-             plain_sk[64-enc_sk_bytes.len()..].copy_from_slice(&enc_sk_bytes);
-             
-             let sm4_ecb = smcrypto::sm4::CryptSM4ECB::new(&session_key);
-             let encrypted_pri_key_padded = sm4_ecb.encrypt_ecb(&plain_sk);
-             
-             // cbEncryptedPriKey: 64 bytes (take the first 64 bytes of SM4 ciphertext, ignoring PKCS7 padding block appended by smcrypto)
-             let mut cb_encrypted_pri_key = [0u8; 64];
-             cb_encrypted_pri_key.copy_from_slice(&encrypted_pri_key_padded[..64]);
-             
-             // 6. SM2 encrypt the session key with the sign public key
-             // smcrypto expects pk as hex string (X||Y without 04 prefix)
-             let sign_pk_hex = format!("{}{}", 
-                 sign_pub_x.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
-                 sign_pub_y.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-             );
-             let enc_ctx = smcrypto::sm2::Encrypt::new(&sign_pk_hex);
-             let cipher_bytes = enc_ctx.encrypt(&session_key);
-             // smcrypto encrypt() returns C1||C3||C2 (NO 04 prefix on C1):
-             // C1 = x(32) || y(32) = 64 bytes (no 04 prefix!)
-             // C3 = SM3 hash = 32 bytes
-             // C2 = ciphertext = 16 bytes (same length as plaintext)
-             // Total = 64 + 32 + 16 = 112 bytes
-             
-             log::info!("SM2 encrypt output: {} bytes, first 4 bytes: {:02x?}", cipher_bytes.len(), &cipher_bytes[..4.min(cipher_bytes.len())]);
-             
-             // Parse C1(64) + C3(32) + C2(16) = 112 bytes total
-             let (c1_x, c1_y, c3_hash, c2_cipher) = if cipher_bytes.len() >= 112 {
-                 (
-                     &cipher_bytes[0..32],     // C1.x
-                     &cipher_bytes[32..64],    // C1.y
-                     &cipher_bytes[64..96],    // C3 = Hash
-                     &cipher_bytes[96..112],   // C2 = Cipher (16 bytes)
-                 )
-             } else {
-                 log::error!("SM2 encrypt output too short: {} bytes, expected 112", cipher_bytes.len());
-                 (&[0u8; 32][..], &[0u8; 32][..], &[0u8; 32][..], &[0u8; 16][..])
-             };
-             
-             // 7. Build ENVELOPEDKEYBLOB
-             let mut enveloped_blob = Vec::new();
-             // Version = 1
-             enveloped_blob.extend_from_slice(&1u32.to_le_bytes());
-             // ulSymmAlgID = SGD_SM4_ECB (0x00000401)
-             enveloped_blob.extend_from_slice(&0x00000401u32.to_le_bytes());
-             // ulBits = 256
-             enveloped_blob.extend_from_slice(&256u32.to_le_bytes());
-             // cbEncryptedPriKey[64] - SM4-ECB encrypted enc private key
-             enveloped_blob.extend_from_slice(&cb_encrypted_pri_key);
-             // PubKey: ECCPUBLICKEYBLOB (BitLen + X[64] + Y[64])
-             enveloped_blob.extend_from_slice(&256u32.to_le_bytes()); // BitLen
-             let mut x_coord = [0u8; 64];
-             x_coord[64-enc_pub_x.len()..].copy_from_slice(enc_pub_x);
-             enveloped_blob.extend_from_slice(&x_coord);
-             let mut y_coord = [0u8; 64];
-             y_coord[64-enc_pub_y.len()..].copy_from_slice(enc_pub_y);
-             enveloped_blob.extend_from_slice(&y_coord);
-             // ECCCipherBlob: SM2 encrypted session key
-             // XCoordinate[64]
-             let mut cx = [0u8; 64];
-             cx[64-c1_x.len()..].copy_from_slice(c1_x);
-             enveloped_blob.extend_from_slice(&cx);
-             // YCoordinate[64]
-             let mut cy = [0u8; 64];
-             cy[64-c1_y.len()..].copy_from_slice(c1_y);
-             enveloped_blob.extend_from_slice(&cy);
-             // Hash[32]
-             let mut hash = [0u8; 32];
-             hash[..c3_hash.len().min(32)].copy_from_slice(&c3_hash[..c3_hash.len().min(32)]);
-             enveloped_blob.extend_from_slice(&hash);
-             // CipherLen
-             enveloped_blob.extend_from_slice(&(c2_cipher.len() as u32).to_le_bytes());
-             // Cipher
-             enveloped_blob.extend_from_slice(c2_cipher);
-             
-             let enc_pri_key_b64 = BASE64_STANDARD.encode(&enveloped_blob);
-             
-             // Never log private-key or session-key material. Length-only metadata
-             // is sufficient for diagnostics and safe for production logs.
-             log::info!(
+            // 3. Generate enc certificate using OpenSSL with the smcrypto-generated public key
+            // Write the enc public key as PEM for OpenSSL
+            let enc_pub_pem_path = temp_file_path(&format!("enc_pub_{}.pem", req_id));
+            let enc_crt_path = temp_file_path(&format!("enc_{}.crt", req_id));
+            {
+                // Build SubjectPublicKeyInfo DER for SM2 key
+                let mut point = vec![0x04u8]; // uncompressed
+                point.extend_from_slice(enc_pub_x);
+                point.extend_from_slice(enc_pub_y);
+                // Write as PEM via openssl
+                let enc_key_der_path = temp_file_path(&format!("enc_raw_{}.bin", req_id));
+                let tmp_key_path = temp_file_path(&format!("tmpkey_{}.pem", req_id));
+                let _ = std::fs::write(&enc_key_der_path, &point);
+                // Use openssl to convert raw point to PEM public key - use EC param file
+                let _ = std::process::Command::new("openssl")
+                    .args(&[
+                        "ecparam",
+                        "-name",
+                        "SM2",
+                        "-genkey",
+                        "-noout",
+                        "-out",
+                        &tmp_key_path,
+                    ])
+                    .output();
+                let _ = std::process::Command::new("openssl")
+                    .args(&[
+                        "ec",
+                        "-in",
+                        &tmp_key_path,
+                        "-pubout",
+                        "-out",
+                        &enc_pub_pem_path,
+                    ])
+                    .output();
+                let _ = std::fs::remove_file(&enc_key_der_path);
+                let _ = std::fs::remove_file(&tmp_key_path);
+            }
+            // Issue enc certificate (use the sign cert's dummy approach, inject enc pubkey)
+            let dummy2_csr_path = temp_file_path(&format!("dummy2_{}.csr", req_id));
+            let dummy2_key_path = temp_file_path(&format!("dummy2_{}.key", req_id));
+            let _ = std::process::Command::new("openssl")
+                .args(&[
+                    "req",
+                    "-new",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-keyout",
+                    &dummy2_key_path,
+                    "-out",
+                    &dummy2_csr_path,
+                    "-subj",
+                    &extracted_subject,
+                ])
+                .output();
+            // For the enc cert, just use the sign cert PEM as we can't easily inject the smcrypto pubkey through openssl
+            // Instead, let's issue a second cert with the same dummy approach - the cert content doesn't need to match the ENVELOPEDKEYBLOB pubkey strictly for demo
+            let _ = std::process::Command::new("openssl")
+                .args(&[
+                    "x509",
+                    "-req",
+                    "-in",
+                    &dummy2_csr_path,
+                    "-CA",
+                    &ca_crt_path,
+                    "-CAkey",
+                    &ca_key_path,
+                    "-CAcreateserial",
+                    "-out",
+                    &enc_crt_path,
+                    "-days",
+                    "3650",
+                ])
+                .output();
+
+            let enc_cert_pem = std::fs::read_to_string(&enc_crt_path).unwrap_or_default();
+
+            // 4. Generate random 16-byte SM4 session key
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let mut session_key = [0u8; 16];
+            rng.fill(&mut session_key);
+
+            // 5. SM4-ECB encrypt the enc private key with the session key
+            // The token decrypts exactly 64 bytes of cbEncryptedPriKey.
+            // Produce a 64-byte plaintext by padding the 32-byte private key with zeroes at the front.
+            let mut plain_sk = [0u8; 64];
+            plain_sk[64 - enc_sk_bytes.len()..].copy_from_slice(&enc_sk_bytes);
+
+            let sm4_ecb = smcrypto::sm4::CryptSM4ECB::new(&session_key);
+            let encrypted_pri_key_padded = sm4_ecb.encrypt_ecb(&plain_sk);
+
+            // cbEncryptedPriKey: 64 bytes (take the first 64 bytes of SM4 ciphertext, ignoring PKCS7 padding block appended by smcrypto)
+            let mut cb_encrypted_pri_key = [0u8; 64];
+            cb_encrypted_pri_key.copy_from_slice(&encrypted_pri_key_padded[..64]);
+
+            // 6. SM2 encrypt the session key with the sign public key
+            // smcrypto expects pk as hex string (X||Y without 04 prefix)
+            let sign_pk_hex = format!(
+                "{}{}",
+                sign_pub_x
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>(),
+                sign_pub_y
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+            );
+            let enc_ctx = smcrypto::sm2::Encrypt::new(&sign_pk_hex);
+            let cipher_bytes = enc_ctx.encrypt(&session_key);
+            // smcrypto encrypt() returns C1||C3||C2 (NO 04 prefix on C1):
+            // C1 = x(32) || y(32) = 64 bytes (no 04 prefix!)
+            // C3 = SM3 hash = 32 bytes
+            // C2 = ciphertext = 16 bytes (same length as plaintext)
+            // Total = 64 + 32 + 16 = 112 bytes
+
+            log::info!(
+                "SM2 encrypt output: {} bytes, first 4 bytes: {:02x?}",
+                cipher_bytes.len(),
+                &cipher_bytes[..4.min(cipher_bytes.len())]
+            );
+
+            // Parse C1(64) + C3(32) + C2(16) = 112 bytes total
+            let (c1_x, c1_y, c3_hash, c2_cipher) = if cipher_bytes.len() >= 112 {
+                (
+                    &cipher_bytes[0..32],   // C1.x
+                    &cipher_bytes[32..64],  // C1.y
+                    &cipher_bytes[64..96],  // C3 = Hash
+                    &cipher_bytes[96..112], // C2 = Cipher (16 bytes)
+                )
+            } else {
+                log::error!(
+                    "SM2 encrypt output too short: {} bytes, expected 112",
+                    cipher_bytes.len()
+                );
+                (
+                    &[0u8; 32][..],
+                    &[0u8; 32][..],
+                    &[0u8; 32][..],
+                    &[0u8; 16][..],
+                )
+            };
+
+            // 7. Build ENVELOPEDKEYBLOB
+            let mut enveloped_blob = Vec::new();
+            // Version = 1
+            enveloped_blob.extend_from_slice(&1u32.to_le_bytes());
+            // ulSymmAlgID = SGD_SM4_ECB (0x00000401)
+            enveloped_blob.extend_from_slice(&0x00000401u32.to_le_bytes());
+            // ulBits = 256
+            enveloped_blob.extend_from_slice(&256u32.to_le_bytes());
+            // cbEncryptedPriKey[64] - SM4-ECB encrypted enc private key
+            enveloped_blob.extend_from_slice(&cb_encrypted_pri_key);
+            // PubKey: ECCPUBLICKEYBLOB (BitLen + X[64] + Y[64])
+            enveloped_blob.extend_from_slice(&256u32.to_le_bytes()); // BitLen
+            let mut x_coord = [0u8; 64];
+            x_coord[64 - enc_pub_x.len()..].copy_from_slice(enc_pub_x);
+            enveloped_blob.extend_from_slice(&x_coord);
+            let mut y_coord = [0u8; 64];
+            y_coord[64 - enc_pub_y.len()..].copy_from_slice(enc_pub_y);
+            enveloped_blob.extend_from_slice(&y_coord);
+            // ECCCipherBlob: SM2 encrypted session key
+            // XCoordinate[64]
+            let mut cx = [0u8; 64];
+            cx[64 - c1_x.len()..].copy_from_slice(c1_x);
+            enveloped_blob.extend_from_slice(&cx);
+            // YCoordinate[64]
+            let mut cy = [0u8; 64];
+            cy[64 - c1_y.len()..].copy_from_slice(c1_y);
+            enveloped_blob.extend_from_slice(&cy);
+            // Hash[32]
+            let mut hash = [0u8; 32];
+            hash[..c3_hash.len().min(32)].copy_from_slice(&c3_hash[..c3_hash.len().min(32)]);
+            enveloped_blob.extend_from_slice(&hash);
+            // CipherLen
+            enveloped_blob.extend_from_slice(&(c2_cipher.len() as u32).to_le_bytes());
+            // Cipher
+            enveloped_blob.extend_from_slice(c2_cipher);
+
+            let enc_pri_key_b64 = BASE64_STANDARD.encode(&enveloped_blob);
+
+            // Never log private-key or session-key material. Length-only metadata
+            // is sufficient for diagnostics and safe for production logs.
+            log::info!(
                  "Double cert generated: enc_public_key_len={} encrypted_private_key_len={} cipher_len={}",
                  enc_pk_bytes.len(),
                  encrypted_pri_key_padded.len(),
                  c2_cipher.len()
              );
-             
-             // Cleanup all temp files
-             let _ = std::fs::remove_file(&csr_path);
-             let _ = std::fs::remove_file(&pub_key_path);
-             let _ = std::fs::remove_file(&dummy_csr_path);
-             let _ = std::fs::remove_file(&dummy_key_path);
-             let _ = std::fs::remove_file(&crt_path);
-             let _ = std::fs::remove_file(&enc_pub_pem_path);
-             let _ = std::fs::remove_file(&enc_crt_path);
-             let _ = std::fs::remove_file(&dummy2_csr_path);
-             let _ = std::fs::remove_file(&dummy2_key_path);
-             
-             RpcResponse::ok(serde_json::json!({
-                 "certificate": sign_cert_pem,
-                 "certificate2": enc_cert_pem,
-                 "encPriKey": enc_pri_key_b64,
-                 "sessKey": "",
-                 "alg": "SM2",
-                 "double": true
-             }), id)
-        },
+
+            // Cleanup all temp files
+            let _ = std::fs::remove_file(&csr_path);
+            let _ = std::fs::remove_file(&pub_key_path);
+            let _ = std::fs::remove_file(&dummy_csr_path);
+            let _ = std::fs::remove_file(&dummy_key_path);
+            let _ = std::fs::remove_file(&crt_path);
+            let _ = std::fs::remove_file(&enc_pub_pem_path);
+            let _ = std::fs::remove_file(&enc_crt_path);
+            let _ = std::fs::remove_file(&dummy2_csr_path);
+            let _ = std::fs::remove_file(&dummy2_key_path);
+
+            RpcResponse::ok(
+                serde_json::json!({
+                    "certificate": sign_cert_pem,
+                    "certificate2": enc_cert_pem,
+                    "encPriKey": enc_pri_key_b64,
+                    "sessKey": "",
+                    "alg": "SM2",
+                    "double": true
+                }),
+                id,
+            )
+        }
         "ImportCertificate" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::ImportCertificate::handle(ctx, state, &params, lang);
-        },
+            return skf_service::domain::container::ImportCertificate::handle(
+                ctx, state, &params, lang,
+            );
+        }
         "SignData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::crypto::SignData::handle(ctx, state, &params, lang);
-        },
-         "ImportKeyPair" => {
-              // Params: [providerName, deviceName, appName, containerName, alg, encKeyPair, wrapKey?, sm4Mode?]
-              let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
-              let provider = if prov_param.is_empty() || prov_param == "default" {
-                  &ctx.config.default
-              } else {
-                  prov_param
-              };
-              let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
-                  Some(d) => d,
-                  None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
-              };
-              let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
-                  Some(a) => a,
-                  None => return RpcResponse::err(-2, "Missing appName param".into(), id),
-              };
-              let cont_name = match req.params.get(3).and_then(|v| v.as_str()) {
-                  Some(c) => c,
-                  None => return RpcResponse::err(-2, "Missing containerName param".into(), id),
-              };
-              let alg_str = match req.params.get(4).and_then(|v| v.as_str()) {
-                  Some(a) => a,
-                  None => return RpcResponse::err(-2, "Missing alg param".into(), id),
-              };
-              let enc_key_pair_str = match req.params.get(5).and_then(|v| v.as_str()) {
-                  Some(e) => e,
-                  None => return RpcResponse::err(-2, "Missing encKeyPair param".into(), id),
-              };
-              let wrap_key_str_opt = req.params.get(6).and_then(|v| v.as_str());
-              let sm4_mode_str = req.params.get(7).and_then(|v| v.as_str());
-              let sm4_alg_id = match sm4_mode_str {
-                  Some(mode) if mode.eq_ignore_ascii_case("CBC") => SGD_SM4_CBC,
-                  Some(mode) if mode.eq_ignore_ascii_case("ECB") => SGD_SM4_ECB,
-                  Some(_) => {
-                      let msg = match lang {
-                          Language::CN => format!("不支持的SM4模式: {}, 支持: ECB, CBC", sm4_mode_str.unwrap()),
-                          Language::EN => format!("Unsupported SM4 mode: {}, supported: ECB, CBC", sm4_mode_str.unwrap()),
-                      };
-                      return RpcResponse::err(-2, msg, id);
-                  },
-                  None => SGD_SM4_ECB, // 默认 ECB
-              };
+        }
+        "ImportKeyPair" => {
+            // Params: [providerName, deviceName, appName, containerName, alg, encKeyPair, wrapKey?, sm4Mode?]
+            let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let provider = if prov_param.is_empty() || prov_param == "default" {
+                &ctx.config.default
+            } else {
+                prov_param
+            };
+            let dev_name = match req.params.get(1).and_then(|v| v.as_str()) {
+                Some(d) => d,
+                None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
+            };
+            let app_name = match req.params.get(2).and_then(|v| v.as_str()) {
+                Some(a) => a,
+                None => return RpcResponse::err(-2, "Missing appName param".into(), id),
+            };
+            let cont_name = match req.params.get(3).and_then(|v| v.as_str()) {
+                Some(c) => c,
+                None => return RpcResponse::err(-2, "Missing containerName param".into(), id),
+            };
+            let alg_str = match req.params.get(4).and_then(|v| v.as_str()) {
+                Some(a) => a,
+                None => return RpcResponse::err(-2, "Missing alg param".into(), id),
+            };
+            let enc_key_pair_str = match req.params.get(5).and_then(|v| v.as_str()) {
+                Some(e) => e,
+                None => return RpcResponse::err(-2, "Missing encKeyPair param".into(), id),
+            };
+            let wrap_key_str_opt = req.params.get(6).and_then(|v| v.as_str());
+            let sm4_mode_str = req.params.get(7).and_then(|v| v.as_str());
+            let sm4_alg_id = match sm4_mode_str {
+                Some(mode) if mode.eq_ignore_ascii_case("CBC") => SGD_SM4_CBC,
+                Some(mode) if mode.eq_ignore_ascii_case("ECB") => SGD_SM4_ECB,
+                Some(_) => {
+                    let msg = match lang {
+                        Language::CN => {
+                            format!("不支持的SM4模式: {}, 支持: ECB, CBC", sm4_mode_str.unwrap())
+                        }
+                        Language::EN => format!(
+                            "Unsupported SM4 mode: {}, supported: ECB, CBC",
+                            sm4_mode_str.unwrap()
+                        ),
+                    };
+                    return RpcResponse::err(-2, msg, id);
+                }
+                None => SGD_SM4_ECB, // 默认 ECB
+            };
 
-              let is_ecc = alg_str.eq_ignore_ascii_case("SM2") || alg_str.eq_ignore_ascii_case("ECC");
+            let is_ecc = alg_str.eq_ignore_ascii_case("SM2") || alg_str.eq_ignore_ascii_case("ECC");
 
-              let enc_key_pair_bytes = match base64::engine::general_purpose::STANDARD.decode(enc_key_pair_str) {
-                  Ok(b) => b,
-                  Err(e) => return RpcResponse::err(-3, format!("Invalid encKeyPair base64: {}", e), id),
-              };
+            let enc_key_pair_bytes = match base64::engine::general_purpose::STANDARD
+                .decode(enc_key_pair_str)
+            {
+                Ok(b) => b,
+                Err(e) => {
+                    return RpcResponse::err(-3, format!("Invalid encKeyPair base64: {}", e), id)
+                }
+            };
 
-              let api = match ctx.get_api(provider) {
-                  Ok(a) => a,
-                  Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
-              };
+            let api = match ctx.get_api(provider) {
+                Ok(a) => a,
+                Err(e) => return RpcResponse::err(-5, format!("Load Lib Failed: {}", e), id),
+            };
 
-              let c_dev = std::ffi::CString::new(dev_name).unwrap();
-              let mut h_dev: DEVHANDLE = std::ptr::null_mut();
-              let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
-              if ret != SAR_OK {
-                  return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
-              }
+            let c_dev = std::ffi::CString::new(dev_name).unwrap();
+            let mut h_dev: DEVHANDLE = std::ptr::null_mut();
+            let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
+            if ret != SAR_OK {
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
+            }
 
-              let c_app = std::ffi::CString::new(app_name).unwrap();
-              let mut h_app: HAPPLICATION = std::ptr::null_mut();
-              let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
-              if ret != SAR_OK {
-                  api.dis_connect_dev(h_dev);
-                  // A missing application is how a removed device surfaces here.
-                  device_unavailable(state, provider, dev_name);
-                  return RpcResponse::err(ret as i32, format!("OpenApplication failed: 0x{:08X}", ret), id);
-              }
+            let c_app = std::ffi::CString::new(app_name).unwrap();
+            let mut h_app: HAPPLICATION = std::ptr::null_mut();
+            let ret = api.open_application(h_dev, c_app.into_raw(), &mut h_app);
+            if ret != SAR_OK {
+                api.dis_connect_dev(h_dev);
+                // A missing application is how a removed device surfaces here.
+                device_unavailable(state, provider, dev_name);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("OpenApplication failed: 0x{:08X}", ret),
+                    id,
+                );
+            }
 
-              // Get PIN from cache
-              // Authorization is a property of this session; the PIN is no longer
-              // retained, so there is nothing to re-verify on each operation.
-              if session_authorized(state, provider, dev_name, app_name).is_err() {
-                  api.close_application(h_app);
-                  api.dis_connect_dev(h_dev);
-                  api.close_application(h_app);
-                  api.dis_connect_dev(h_dev);
-                  return RpcResponse::err(-10, "User not logged in (PIN cache empty). Call CheckPIN first.".into(), id);
-              }
+            // Get PIN from cache
+            // Authorization is a property of this session; the PIN is no longer
+            // retained, so there is nothing to re-verify on each operation.
+            if session_authorized(state, provider, dev_name, app_name).is_err() {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(
+                    -10,
+                    "User not logged in (PIN cache empty). Call CheckPIN first.".into(),
+                    id,
+                );
+            }
 
-              let c_cont = std::ffi::CString::new(cont_name).unwrap();
-              let mut h_cont: HCONTAINER = std::ptr::null_mut();
-              let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
-              if ret != SAR_OK {
-                  api.close_application(h_app);
-                  api.dis_connect_dev(h_dev);
-                  return RpcResponse::err(ret as i32, format!("OpenContainer failed: 0x{:08X}", ret), id);
-              }
+            let c_cont = std::ffi::CString::new(cont_name).unwrap();
+            let mut h_cont: HCONTAINER = std::ptr::null_mut();
+            let ret = api.open_container(h_app, c_cont.into_raw(), &mut h_cont);
+            if ret != SAR_OK {
+                api.close_application(h_app);
+                api.dis_connect_dev(h_dev);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("OpenContainer failed: 0x{:08X}", ret),
+                    id,
+                );
+            }
 
-              let ret = if is_ecc {
-                  api.import_ecc_key_pair(h_cont, enc_key_pair_bytes.as_ptr() as *const _)
-              } else {
-                  let wrap_key_str = wrap_key_str_opt.unwrap_or("");
-                  let mut wrap_key_bytes = match base64::engine::general_purpose::STANDARD.decode(wrap_key_str) {
-                      Ok(b) => b,
-                      Err(e) => {
-                          api.close_container(h_cont);
-                          api.close_application(h_app);
-                          api.dis_connect_dev(h_dev);
-                          return RpcResponse::err(-3, format!("Invalid wrapKey base64: {}", e), id);
-                      }
-                  };
-                  let mut enc_key_bytes = enc_key_pair_bytes;
-                  api.import_rsa_key_pair(h_cont, sm4_alg_id, wrap_key_bytes.as_mut_ptr(), wrap_key_bytes.len() as ULONG, enc_key_bytes.as_mut_ptr(), enc_key_bytes.len() as ULONG)
-              };
+            let ret = if is_ecc {
+                api.import_ecc_key_pair(h_cont, enc_key_pair_bytes.as_ptr() as *const _)
+            } else {
+                let wrap_key_str = wrap_key_str_opt.unwrap_or("");
+                let mut wrap_key_bytes = match base64::engine::general_purpose::STANDARD
+                    .decode(wrap_key_str)
+                {
+                    Ok(b) => b,
+                    Err(e) => {
+                        api.close_container(h_cont);
+                        api.close_application(h_app);
+                        api.dis_connect_dev(h_dev);
+                        return RpcResponse::err(-3, format!("Invalid wrapKey base64: {}", e), id);
+                    }
+                };
+                let mut enc_key_bytes = enc_key_pair_bytes;
+                api.import_rsa_key_pair(
+                    h_cont,
+                    sm4_alg_id,
+                    wrap_key_bytes.as_mut_ptr(),
+                    wrap_key_bytes.len() as ULONG,
+                    enc_key_bytes.as_mut_ptr(),
+                    enc_key_bytes.len() as ULONG,
+                )
+            };
 
-              api.close_container(h_cont);
-              api.close_application(h_app);
-              api.dis_connect_dev(h_dev);
+            api.close_container(h_cont);
+            api.close_application(h_app);
+            api.dis_connect_dev(h_dev);
 
-              if ret == SAR_OK {
-                  RpcResponse::ok(serde_json::json!(true), id)
-              } else {
-                  RpcResponse::err(ret as i32, format!("ImportKeyPair failed: 0x{:08X}", ret), id)
-              }
-         },
+            if ret == SAR_OK {
+                RpcResponse::ok(serde_json::json!(true), id)
+            } else {
+                RpcResponse::err(
+                    ret as i32,
+                    format!("ImportKeyPair failed: 0x{:08X}", ret),
+                    id,
+                )
+            }
+        }
         "DisConnectDev" => {
             // An integer is what a pre-Phase-2 client used to send back. It is no
             // longer a handle and must never be converted into one: passing a
@@ -1177,84 +1394,157 @@ fn handle_request(
                 }
                 Err(_) => RpcResponse::err(-11, "Invalid or expired handle".into(), id),
             }
-        },
+        }
         "FindCertificates" => {
-             let provider_list: Vec<String> = ctx.config.libs.keys().cloned().collect();
-             
-             let filter_str = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
-             let want_sign = filter_str.is_empty() || filter_str.eq_ignore_ascii_case("Sign");
-             let want_enc = filter_str.is_empty() || filter_str.eq_ignore_ascii_case("Enc");
+            let provider_list: Vec<String> = ctx.config.libs.keys().cloned().collect();
 
-             #[derive(Serialize)]
-             struct CertResult {
-                 key: String,
-                 value: String,
-                 #[serde(rename = "type")]
-                 ctype: String,
-                 cert: String,
-             }
-             
-             let mut results = Vec::new();
-             
-             for prov_name in provider_list {
-                 if let Ok(api) = ctx.get_api(&prov_name) {
-                     let mut size: ULONG = 0;
-                     if api.enum_dev(1, std::ptr::null_mut(), &mut size) == SAR_OK && size > 1 {
+            let filter_str = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let want_sign = filter_str.is_empty() || filter_str.eq_ignore_ascii_case("Sign");
+            let want_enc = filter_str.is_empty() || filter_str.eq_ignore_ascii_case("Enc");
+
+            #[derive(Serialize)]
+            struct CertResult {
+                key: String,
+                value: String,
+                #[serde(rename = "type")]
+                ctype: String,
+                cert: String,
+            }
+
+            let mut results = Vec::new();
+
+            for prov_name in provider_list {
+                if let Ok(api) = ctx.get_api(&prov_name) {
+                    let mut size: ULONG = 0;
+                    if api.enum_dev(1, std::ptr::null_mut(), &mut size) == SAR_OK && size > 1 {
                         let mut buf = vec![0u8 as CHAR; size as usize];
                         if api.enum_dev(1, buf.as_mut_ptr(), &mut size) == SAR_OK {
-                            let raw_names = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize) };
-                            let dev_names: Vec<String> = raw_names.split(|&c| c == 0)
+                            let raw_names = unsafe {
+                                std::slice::from_raw_parts(buf.as_ptr() as *const u8, size as usize)
+                            };
+                            let dev_names: Vec<String> = raw_names
+                                .split(|&c| c == 0)
                                 .filter(|s| !s.is_empty())
                                 .map(|s| String::from_utf8_lossy(s).to_string())
                                 .collect();
-                                
+
                             for dev_name in dev_names {
                                 let c_name = std::ffi::CString::new(dev_name.as_str()).unwrap();
                                 let mut h_dev: DEVHANDLE = std::ptr::null_mut();
-                                
+
                                 if api.connect_dev(c_name.into_raw(), &mut h_dev) == SAR_OK {
                                     let mut app_size: ULONG = 0;
-                                    if api.enum_application(h_dev, std::ptr::null_mut(), &mut app_size) == SAR_OK && app_size > 1 {
+                                    if api.enum_application(
+                                        h_dev,
+                                        std::ptr::null_mut(),
+                                        &mut app_size,
+                                    ) == SAR_OK
+                                        && app_size > 1
+                                    {
                                         let mut app_buf = vec![0u8 as CHAR; app_size as usize];
-                                        if api.enum_application(h_dev, app_buf.as_mut_ptr(), &mut app_size) == SAR_OK {
-                                            let raw_apps = unsafe { std::slice::from_raw_parts(app_buf.as_ptr() as *const u8, app_size as usize) };
-                                            let app_names: Vec<String> = raw_apps.split(|&c| c == 0)
+                                        if api.enum_application(
+                                            h_dev,
+                                            app_buf.as_mut_ptr(),
+                                            &mut app_size,
+                                        ) == SAR_OK
+                                        {
+                                            let raw_apps = unsafe {
+                                                std::slice::from_raw_parts(
+                                                    app_buf.as_ptr() as *const u8,
+                                                    app_size as usize,
+                                                )
+                                            };
+                                            let app_names: Vec<String> = raw_apps
+                                                .split(|&c| c == 0)
                                                 .filter(|s| !s.is_empty())
                                                 .map(|s| String::from_utf8_lossy(s).to_string())
                                                 .collect();
-                                                
+
                                             for app_name in app_names {
-                                                let c_app = std::ffi::CString::new(app_name.as_str()).unwrap();
+                                                let c_app =
+                                                    std::ffi::CString::new(app_name.as_str())
+                                                        .unwrap();
                                                 let mut h_app: HAPPLICATION = std::ptr::null_mut();
-                                                if api.open_application(h_dev, c_app.into_raw(), &mut h_app) == SAR_OK {
-                                                     let mut cont_size: ULONG = 0;
-                                                     if api.enum_container(h_app, std::ptr::null_mut(), &mut cont_size) == SAR_OK && cont_size > 1 {
-                                                         let mut cont_buf = vec![0u8 as CHAR; cont_size as usize];
-                                                         if api.enum_container(h_app, cont_buf.as_mut_ptr(), &mut cont_size) == SAR_OK {
-                                                             let raw_conts = unsafe { std::slice::from_raw_parts(cont_buf.as_ptr() as *const u8, cont_size as usize) };
-                                                             let cont_names: Vec<String> = raw_conts.split(|&c| c == 0)
+                                                if api.open_application(
+                                                    h_dev,
+                                                    c_app.into_raw(),
+                                                    &mut h_app,
+                                                ) == SAR_OK
+                                                {
+                                                    let mut cont_size: ULONG = 0;
+                                                    if api.enum_container(
+                                                        h_app,
+                                                        std::ptr::null_mut(),
+                                                        &mut cont_size,
+                                                    ) == SAR_OK
+                                                        && cont_size > 1
+                                                    {
+                                                        let mut cont_buf =
+                                                            vec![0u8 as CHAR; cont_size as usize];
+                                                        if api.enum_container(
+                                                            h_app,
+                                                            cont_buf.as_mut_ptr(),
+                                                            &mut cont_size,
+                                                        ) == SAR_OK
+                                                        {
+                                                            let raw_conts = unsafe {
+                                                                std::slice::from_raw_parts(
+                                                                    cont_buf.as_ptr() as *const u8,
+                                                                    cont_size as usize,
+                                                                )
+                                                            };
+                                                            let cont_names: Vec<String> = raw_conts
+                                                                .split(|&c| c == 0)
                                                                 .filter(|s| !s.is_empty())
-                                                                .map(|s| String::from_utf8_lossy(s).to_string())
+                                                                .map(|s| {
+                                                                    String::from_utf8_lossy(s)
+                                                                        .to_string()
+                                                                })
                                                                 .collect();
-                                                                
-                                                             for cont_name in cont_names {
-                                                                 let c_cont = std::ffi::CString::new(cont_name.as_str()).unwrap();
-                                                                 let mut h_cont: HCONTAINER = std::ptr::null_mut();
-                                                                 if api.open_container(h_app, c_cont.into_raw(), &mut h_cont) == SAR_OK {
-                                                                     let mut process_cert = |is_sign: bool| {
-                                                                         let mut cert_len: ULONG = 0;
-                                                                         let sign_flag = if is_sign { 1 } else { 0 };
-                                                                         if api.export_certificate(h_cont, sign_flag, std::ptr::null_mut(), &mut cert_len) == SAR_OK && cert_len > 0 {
-                                                                             let mut cbuf = vec![0u8; cert_len as usize];
-                                                                             if api.export_certificate(h_cont, sign_flag, cbuf.as_mut_ptr(), &mut cert_len) == SAR_OK {
+
+                                                            for cont_name in cont_names {
+                                                                let c_cont =
+                                                                    std::ffi::CString::new(
+                                                                        cont_name.as_str(),
+                                                                    )
+                                                                    .unwrap();
+                                                                let mut h_cont: HCONTAINER =
+                                                                    std::ptr::null_mut();
+                                                                if api.open_container(
+                                                                    h_app,
+                                                                    c_cont.into_raw(),
+                                                                    &mut h_cont,
+                                                                ) == SAR_OK
+                                                                {
+                                                                    let mut process_cert =
+                                                                        |is_sign: bool| {
+                                                                            let mut cert_len: ULONG = 0;
+                                                                            let sign_flag =
+                                                                                if is_sign {
+                                                                                    1
+                                                                                } else {
+                                                                                    0
+                                                                                };
+                                                                            if api
+                                                                                .export_certificate(
+                                                                                h_cont,
+                                                                                sign_flag,
+                                                                                std::ptr::null_mut(
+                                                                                ),
+                                                                                &mut cert_len,
+                                                                            ) == SAR_OK
+                                                                                && cert_len > 0
+                                                                            {
+                                                                                let mut cbuf = vec![0u8; cert_len as usize];
+                                                                                if api.export_certificate(h_cont, sign_flag, cbuf.as_mut_ptr(), &mut cert_len) == SAR_OK {
                                                                                  if let Ok((_, cert)) = X509Certificate::from_der(&cbuf) {
                                                                                      let serial = cert.serial.to_string();
                                                                                      let subject = cert.subject().to_string();
-                                                                                     
+
                                                                                      let key = format!("{}/{}/{}/{}/{}", prov_name, dev_name, app_name, cont_name, serial);
                                                                                      let ctype = if is_sign { "Sign" } else { "Enc" }.to_string();
                                                                                      let b64 = BASE64_STANDARD.encode(&cbuf);
-                                                                                     
+
                                                                                      results.push(CertResult {
                                                                                          key,
                                                                                          value: subject,
@@ -1263,18 +1553,22 @@ fn handle_request(
                                                                                      });
                                                                                  }
                                                                              }
-                                                                         }
-                                                                     };
+                                                                            }
+                                                                        };
 
-                                                                     if want_sign { process_cert(true); }
-                                                                     if want_enc { process_cert(false); }
-                                                                     
-                                                                     api.close_container(h_cont);
-                                                                 }
-                                                             }
-                                                         }
-                                                     }
-                                                     api.close_application(h_app);
+                                                                    if want_sign {
+                                                                        process_cert(true);
+                                                                    }
+                                                                    if want_enc {
+                                                                        process_cert(false);
+                                                                    }
+
+                                                                    api.close_container(h_cont);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    api.close_application(h_app);
                                                 }
                                             }
                                         }
@@ -1283,11 +1577,11 @@ fn handle_request(
                                 }
                             }
                         }
-                     }
-                 }
-             }
-             RpcResponse::ok(serde_json::json!(results), id)
-        },
+                    }
+                }
+            }
+            RpcResponse::ok(serde_json::json!(results), id)
+        }
         "GenerateRandom" => {
             let handle = match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(handle) => handle,
@@ -1313,7 +1607,7 @@ fn handle_request(
                 }
                 Err(e) => provider_load_failed(&e, lang, id),
             }
-        },
+        }
         "Digest" => {
             // Params: [providerName, deviceName, dataBase64, alg]
             let prov_name = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -1335,7 +1629,9 @@ fn handle_request(
                 "SM3" => SGD_SM3,
                 "SHA1" => 0x00000002,
                 "SHA256" => 0x00000004,
-                _ => return RpcResponse::err(-2, format!("Unsupported algorithm: {}", alg_name), id),
+                _ => {
+                    return RpcResponse::err(-2, format!("Unsupported algorithm: {}", alg_name), id)
+                }
             };
 
             // Decode data
@@ -1355,22 +1651,43 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             // DigestInit (general hash, no pubkey/ID)
             let mut h_hash: HANDLE = std::ptr::null_mut();
-            let ret = api.digest_init(h_dev, alg_id, std::ptr::null_mut(), std::ptr::null_mut(), 0, &mut h_hash);
+            let ret = api.digest_init(
+                h_dev,
+                alg_id,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+                &mut h_hash,
+            );
             if ret != SAR_OK {
                 api.dis_connect_dev(h_dev);
-                return RpcResponse::err(ret as i32, format!("DigestInit failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("DigestInit failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             // Digest (one-shot)
             let mut hash_buf = vec![0u8; 64]; // enough for SM3(32), SHA256(32), SHA1(20)
             let mut hash_len: ULONG = hash_buf.len() as ULONG;
             let mut data_buf = data_bytes.clone();
-            let ret = api.digest(h_hash, data_buf.as_mut_ptr(), data_buf.len() as ULONG, hash_buf.as_mut_ptr(), &mut hash_len);
+            let ret = api.digest(
+                h_hash,
+                data_buf.as_mut_ptr(),
+                data_buf.len() as ULONG,
+                hash_buf.as_mut_ptr(),
+                &mut hash_len,
+            );
 
             api.dis_connect_dev(h_dev);
 
@@ -1383,32 +1700,38 @@ fn handle_request(
             }
 
             hash_buf.truncate(hash_len as usize);
-            let hash_hex = hash_buf.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+            let hash_hex = hash_buf
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>();
             let hash_b64 = BASE64_STANDARD.encode(&hash_buf);
 
-            RpcResponse::ok(serde_json::json!({
-                "hex": hash_hex,
-                "base64": hash_b64,
-                "algorithm": alg_name,
-                "length": hash_len
-            }), id)
-        },
+            RpcResponse::ok(
+                serde_json::json!({
+                    "hex": hash_hex,
+                    "base64": hash_b64,
+                    "algorithm": alg_name,
+                    "length": hash_len
+                }),
+                id,
+            )
+        }
         "CheckPIN" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::pin::CheckPIN::handle(ctx, state, &params, lang);
-        },
+        }
         "CreatePKCS10" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::crypto::CreatePKCS10::handle(ctx, state, &params, lang);
-        },
+        }
         "EncryptData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::crypto::EncryptData::handle(ctx, state, &params, lang);
-        },
+        }
         "DecryptData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::crypto::DecryptData::handle(ctx, state, &params, lang);
-        },
+        }
         "GetDevInfo" => {
             // Params: [providerName, deviceName]
             let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
@@ -1431,7 +1754,11 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             let mut dev_info: DEVINFO = unsafe { std::mem::zeroed() };
@@ -1448,32 +1775,39 @@ fn handle_request(
             }
 
             let manufacturer = unsafe { std::ffi::CStr::from_ptr(dev_info.Manufacturer.as_ptr()) }
-                .to_string_lossy().to_string();
+                .to_string_lossy()
+                .to_string();
             let issuer = unsafe { std::ffi::CStr::from_ptr(dev_info.Issuer.as_ptr()) }
-                .to_string_lossy().to_string();
+                .to_string_lossy()
+                .to_string();
             let label = unsafe { std::ffi::CStr::from_ptr(dev_info.Label.as_ptr()) }
-                .to_string_lossy().to_string();
+                .to_string_lossy()
+                .to_string();
             let serial = unsafe { std::ffi::CStr::from_ptr(dev_info.SerialNumber.as_ptr()) }
-                .to_string_lossy().to_string();
+                .to_string_lossy()
+                .to_string();
 
-            RpcResponse::ok(serde_json::json!({
-                "version": { "major": dev_info.Version.major, "minor": dev_info.Version.minor },
-                "manufacturer": manufacturer,
-                "issuer": issuer,
-                "label": label,
-                "serialNumber": serial,
-                "hwVersion": { "major": dev_info.HWVersion.major, "minor": dev_info.HWVersion.minor },
-                "firmwareVersion": { "major": dev_info.FirmwareVersion.major, "minor": dev_info.FirmwareVersion.minor },
-                "algSymCap": dev_info.AlgSymCap,
-                "algAsymCap": dev_info.AlgAsymCap,
-                "algHashCap": dev_info.AlgHashCap,
-                "devAuthAlgId": dev_info.DevAuthAlgId,
-                "totalSpace": dev_info.TotalSpace,
-                "freeSpace": dev_info.FreeSpace,
-                "maxECCBufferSize": dev_info.MaxECCBufferSize,
-                "maxBufferSize": dev_info.MaxBufferSize,
-            }), id)
-        },
+            RpcResponse::ok(
+                serde_json::json!({
+                    "version": { "major": dev_info.Version.major, "minor": dev_info.Version.minor },
+                    "manufacturer": manufacturer,
+                    "issuer": issuer,
+                    "label": label,
+                    "serialNumber": serial,
+                    "hwVersion": { "major": dev_info.HWVersion.major, "minor": dev_info.HWVersion.minor },
+                    "firmwareVersion": { "major": dev_info.FirmwareVersion.major, "minor": dev_info.FirmwareVersion.minor },
+                    "algSymCap": dev_info.AlgSymCap,
+                    "algAsymCap": dev_info.AlgAsymCap,
+                    "algHashCap": dev_info.AlgHashCap,
+                    "devAuthAlgId": dev_info.DevAuthAlgId,
+                    "totalSpace": dev_info.TotalSpace,
+                    "freeSpace": dev_info.FreeSpace,
+                    "maxECCBufferSize": dev_info.MaxECCBufferSize,
+                    "maxBufferSize": dev_info.MaxBufferSize,
+                }),
+                id,
+            )
+        }
         "GetDevState" => {
             // Params: [providerName, deviceName]
             let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
@@ -1498,10 +1832,13 @@ fn handle_request(
                             2 => "busy",
                             _ => "unknown",
                         };
-                        RpcResponse::ok(serde_json::json!({
-                            "state": dev_state,
-                            "stateStr": state_str,
-                        }), id)
+                        RpcResponse::ok(
+                            serde_json::json!({
+                                "state": dev_state,
+                                "stateStr": state_str,
+                            }),
+                            id,
+                        )
                     }
                     Err(ProviderError::Native { code, .. }) => {
                         let msg = match lang {
@@ -1539,11 +1876,14 @@ fn handle_request(
                 _ => "unknown",
             };
 
-            RpcResponse::ok(serde_json::json!({
-                "state": dev_state,
-                "stateStr": state_str,
-            }), id)
-        },
+            RpcResponse::ok(
+                serde_json::json!({
+                    "state": dev_state,
+                    "stateStr": state_str,
+                }),
+                id,
+            )
+        }
         "SetLabel" => {
             // Params: [providerName, deviceName, label]
             let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
@@ -1570,7 +1910,11 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             let c_label = std::ffi::CString::new(label).unwrap();
@@ -1587,7 +1931,7 @@ fn handle_request(
             }
 
             RpcResponse::ok(serde_json::json!(true), id)
-        },
+        }
         "ECCVerify" => {
             // Params: [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]
             let prov_param = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
@@ -1623,24 +1967,24 @@ fn handle_request(
             };
             let sig_bytes = match BASE64_STANDARD.decode(sig_b64) {
                 Ok(b) => b,
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 signature: {}", e), id),
+                Err(e) => {
+                    return RpcResponse::err(-2, format!("Invalid base64 signature: {}", e), id)
+                }
             };
 
             // Parse ECCPUBLICKEYBLOB from raw bytes
             if pub_key_bytes.len() < std::mem::size_of::<ECCPUBLICKEYBLOB>() {
                 return RpcResponse::err(-2, "pubKey too short for ECCPUBLICKEYBLOB".into(), id);
             }
-            let ecc_pub_key: ECCPUBLICKEYBLOB = unsafe {
-                std::ptr::read(pub_key_bytes.as_ptr() as *const ECCPUBLICKEYBLOB)
-            };
+            let ecc_pub_key: ECCPUBLICKEYBLOB =
+                unsafe { std::ptr::read(pub_key_bytes.as_ptr() as *const ECCPUBLICKEYBLOB) };
 
             // Parse ECCSIGNATUREBLOB from raw bytes
             if sig_bytes.len() < std::mem::size_of::<ECCSIGNATUREBLOB>() {
                 return RpcResponse::err(-2, "signature too short for ECCSIGNATUREBLOB".into(), id);
             }
-            let ecc_sig: ECCSIGNATUREBLOB = unsafe {
-                std::ptr::read(sig_bytes.as_ptr() as *const ECCSIGNATUREBLOB)
-            };
+            let ecc_sig: ECCSIGNATUREBLOB =
+                unsafe { std::ptr::read(sig_bytes.as_ptr() as *const ECCSIGNATUREBLOB) };
 
             let api = match ctx.get_api(prov_name) {
                 Ok(a) => a,
@@ -1651,10 +1995,20 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
-            let ret = api.ecc_verify(h_dev, &ecc_pub_key as *const ECCPUBLICKEYBLOB as *mut ECCPUBLICKEYBLOB, data_bytes.as_mut_ptr(), data_bytes.len() as ULONG, &ecc_sig as *const ECCSIGNATUREBLOB as *mut ECCSIGNATUREBLOB);
+            let ret = api.ecc_verify(
+                h_dev,
+                &ecc_pub_key as *const ECCPUBLICKEYBLOB as *mut ECCPUBLICKEYBLOB,
+                data_bytes.as_mut_ptr(),
+                data_bytes.len() as ULONG,
+                &ecc_sig as *const ECCSIGNATUREBLOB as *mut ECCSIGNATUREBLOB,
+            );
 
             api.dis_connect_dev(h_dev);
 
@@ -1667,19 +2021,23 @@ fn handle_request(
                 };
                 RpcResponse::err(ret as i32, msg, id)
             }
-        },
+        }
         "CreateContainer" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::CreateContainer::handle(ctx, state, &params, lang);
-        },
+            return skf_service::domain::container::CreateContainer::handle(
+                ctx, state, &params, lang,
+            );
+        }
         "GetContainerType" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
-            return skf_service::domain::container::GetContainerType::handle(ctx, state, &params, lang);
-        },
+            return skf_service::domain::container::GetContainerType::handle(
+                ctx, state, &params, lang,
+            );
+        }
         "RSASignData" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::crypto::RSASignData::handle(ctx, state, &params, lang);
-        },
+        }
         "LockDev" => {
             // Params: [providerName, deviceName, timeout]
             let provider = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -1690,7 +2048,8 @@ fn handle_request(
                 Some(d) => d,
                 None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
             };
-            let timeout: ULONG = req.params.get(2).and_then(|v| v.as_u64()).unwrap_or(5000) as ULONG;
+            let timeout: ULONG =
+                req.params.get(2).and_then(|v| v.as_u64()).unwrap_or(5000) as ULONG;
 
             let lib_path = match ctx.get_lib_path(provider) {
                 Ok(p) => p,
@@ -1708,7 +2067,11 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             let ret = api.lock_dev(h_dev, timeout);
@@ -1722,7 +2085,7 @@ fn handle_request(
                 return RpcResponse::err(ret as i32, msg, id);
             }
             RpcResponse::ok(serde_json::json!(true), id)
-        },
+        }
         "UnlockDev" => {
             // Params: [providerName, deviceName]
             let provider = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -1750,7 +2113,11 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             let ret = api.unlock_dev(h_dev);
@@ -1764,7 +2131,7 @@ fn handle_request(
                 return RpcResponse::err(ret as i32, msg, id);
             }
             RpcResponse::ok(serde_json::json!(true), id)
-        },
+        }
         "Transmit" => {
             // Params: [providerName, deviceName, commandBase64]
             let provider = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -1781,7 +2148,9 @@ fn handle_request(
             };
             let cmd_bytes = match BASE64_STANDARD.decode(cmd_b64) {
                 Ok(b) => b,
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 command: {}", e), id),
+                Err(e) => {
+                    return RpcResponse::err(-2, format!("Invalid base64 command: {}", e), id)
+                }
             };
 
             let lib_path = match ctx.get_lib_path(provider) {
@@ -1800,12 +2169,22 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             let mut resp_buf = vec![0u8; 4096];
             let mut resp_len: ULONG = resp_buf.len() as ULONG;
-            let ret = api.transmit(h_dev, cmd_bytes.as_ptr() as *mut BYTE, cmd_bytes.len() as ULONG, resp_buf.as_mut_ptr(), &mut resp_len);
+            let ret = api.transmit(
+                h_dev,
+                cmd_bytes.as_ptr() as *mut BYTE,
+                cmd_bytes.len() as ULONG,
+                resp_buf.as_mut_ptr(),
+                &mut resp_len,
+            );
             api.dis_connect_dev(h_dev);
 
             if ret != SAR_OK {
@@ -1819,7 +2198,7 @@ fn handle_request(
             resp_buf.truncate(resp_len as usize);
             let resp_b64 = BASE64_STANDARD.encode(&resp_buf);
             RpcResponse::ok(serde_json::json!(resp_b64), id)
-        },
+        }
         "CancelWaitForDevEvent" => {
             match ctx.provider.cancel_wait_for_event() {
                 Ok(()) => RpcResponse::ok(serde_json::json!(true), id),
@@ -1840,15 +2219,15 @@ fn handle_request(
                     RpcResponse::err(-1, msg, id)
                 }
             }
-        },
+        }
         "GenECCKeyPair" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::keys::GenECCKeyPair::handle(ctx, state, &params, lang);
-        },
+        }
         "GenRSAKeyPair" => {
             let params = skf_service::protocol::params::Params::new(&req.params, id.clone());
             return skf_service::domain::keys::GenRSAKeyPair::handle(ctx, state, &params, lang);
-        },
+        }
         "RSAVerify" => {
             // Params: [providerName, deviceName, pubKeyBase64, dataBase64, signatureBase64]
             let provider = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -1874,7 +2253,9 @@ fn handle_request(
 
             let pub_key_bytes = match BASE64_STANDARD.decode(pub_key_b64) {
                 Ok(b) => b,
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 publicKey: {}", e), id),
+                Err(e) => {
+                    return RpcResponse::err(-2, format!("Invalid base64 publicKey: {}", e), id)
+                }
             };
             if pub_key_bytes.len() < std::mem::size_of::<RSAPUBLICKEYBLOB>() {
                 return RpcResponse::err(-2, "RSAPUBLICKEYBLOB data too short".into(), id);
@@ -1886,7 +2267,9 @@ fn handle_request(
             };
             let sig_bytes = match BASE64_STANDARD.decode(sig_b64) {
                 Ok(b) => b,
-                Err(e) => return RpcResponse::err(-2, format!("Invalid base64 signature: {}", e), id),
+                Err(e) => {
+                    return RpcResponse::err(-2, format!("Invalid base64 signature: {}", e), id)
+                }
             };
 
             let lib_path = match ctx.get_lib_path(provider) {
@@ -1905,7 +2288,11 @@ fn handle_request(
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
             let ret = api.connect_dev(c_dev.into_raw(), &mut h_dev);
             if ret != SAR_OK {
-                return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                return RpcResponse::err(
+                    ret as i32,
+                    format!("ConnectDev failed: 0x{:08X}", ret),
+                    id,
+                );
             }
 
             let mut rsa_pub_key: RSAPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
@@ -1936,7 +2323,7 @@ fn handle_request(
                 };
                 RpcResponse::err(ret as i32, msg, id)
             }
-        },
+        }
         "DigestInit" => {
             // Params: [providerName, deviceName, algId, idBase64]
             let provider = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -1947,9 +2334,17 @@ fn handle_request(
                 Some(d) => d,
                 None => return RpcResponse::err(-2, "Missing deviceName param".into(), id),
             };
-            let alg_id: ULONG = req.params.get(2).and_then(|v| v.as_u64()).unwrap_or(SGD_SM3 as u64) as ULONG;
+            let alg_id: ULONG = req
+                .params
+                .get(2)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(SGD_SM3 as u64) as ULONG;
             let id_b64 = req.params.get(3).and_then(|v| v.as_str()).unwrap_or("");
-            let id_bytes = if id_b64.is_empty() { Vec::new() } else { BASE64_STANDARD.decode(id_b64).unwrap_or_default() };
+            let id_bytes = if id_b64.is_empty() {
+                Vec::new()
+            } else {
+                BASE64_STANDARD.decode(id_b64).unwrap_or_default()
+            };
 
             if provider != ctx.config.default {
                 // Only the default alias has a provider instance; the others keep
@@ -1968,7 +2363,11 @@ fn handle_request(
                 let mut h_dev: DEVHANDLE = std::ptr::null_mut();
                 let ret = api.connect_dev(c_dev.as_ptr() as *mut CHAR, &mut h_dev);
                 if ret != SAR_OK {
-                    return RpcResponse::err(ret as i32, format!("ConnectDev failed: 0x{:08X}", ret), id);
+                    return RpcResponse::err(
+                        ret as i32,
+                        format!("ConnectDev failed: 0x{:08X}", ret),
+                        id,
+                    );
                 }
                 api.dis_connect_dev(h_dev);
                 return RpcResponse::err(-1, "DigestInit requires the default provider".into(), id);
@@ -1980,7 +2379,11 @@ fn handle_request(
             let device = match ctx.provider.open_device(dev_name) {
                 Ok(device) => device,
                 Err(ProviderError::Native { code, .. }) => {
-                    return RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id);
+                    return RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    );
                 }
                 Err(e) => return provider_load_failed(&e, lang, id),
             };
@@ -2004,7 +2407,7 @@ fn handle_request(
                 }
                 Err(e) => provider_load_failed(&e, lang, id),
             }
-        },
+        }
         "DigestUpdate" => {
             // Params: [handle, dataBase64]
             let handle = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -2023,7 +2426,9 @@ fn handle_request(
             // The message is frozen by the recorded contract for this method.
             let digest = match state.handles_mut().digest(handle) {
                 Ok(digest) => digest,
-                Err(_) => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+                Err(_) => {
+                    return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id)
+                }
             };
 
             match digest.update(&data_bytes) {
@@ -2037,7 +2442,7 @@ fn handle_request(
                 }
                 Err(e) => provider_load_failed(&e, lang, id),
             }
-        },
+        }
         "DigestFinal" => {
             // Params: [handle]
             let handle = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -2047,7 +2452,9 @@ fn handle_request(
 
             let digest = match state.handles_mut().remove_digest(handle) {
                 Ok(digest) => digest,
-                Err(_) => return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
+                Err(_) => {
+                    return RpcResponse::err(-11, "Invalid or expired hash handle".into(), id)
+                }
             };
 
             match digest.finalize() {
@@ -2061,7 +2468,7 @@ fn handle_request(
                 }
                 Err(e) => provider_load_failed(&e, lang, id),
             }
-        },
+        }
         "CloseHash" => {
             // Params: [handle]
             let handle = match req.params.get(0).and_then(|v| v.as_str()) {
@@ -2077,7 +2484,7 @@ fn handle_request(
                 }
                 Err(_) => RpcResponse::err(-11, "Invalid or expired hash handle".into(), id),
             }
-        },
+        }
         _ => RpcResponse::err(-3, format!("Method {} not found", req.method), id),
     }
 }

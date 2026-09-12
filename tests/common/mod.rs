@@ -112,8 +112,8 @@ pub fn fixtures_dir() -> PathBuf {
 
 pub fn load_fixture(path: &Path) -> Result<Fixture, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("{}: {}", path.display(), e))?;
-    let value: Value =
-        serde_json::from_str(&text).map_err(|e| format!("{}: invalid JSON: {}", path.display(), e))?;
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("{}: invalid JSON: {}", path.display(), e))?;
 
     let method = value
         .get("method")

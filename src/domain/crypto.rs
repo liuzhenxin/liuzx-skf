@@ -72,9 +72,11 @@ impl SignData {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -96,11 +98,7 @@ impl SignData {
         };
 
         if authorized(state, prov_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         let container = match application.open_container(cont_name) {
@@ -211,9 +209,11 @@ impl RSASignData {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -235,11 +235,7 @@ impl RSASignData {
         };
 
         if authorized(state, prov_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         let container = match application.open_container(cont_name) {
@@ -341,9 +337,11 @@ impl EncryptData {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -365,11 +363,7 @@ impl EncryptData {
         };
 
         if authorized(state, prov_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         let container = match application.open_container(cont_name) {
@@ -478,11 +472,11 @@ impl DecryptData {
         let prov_name = normalize_alias(ctx, parts[0]);
         let (dev_name, app_name, cont_name) = (parts[1], parts[2], parts[3]);
 
-        let encrypted_bytes = match params.decode_base64(encrypted_b64, "Invalid base64 encrypted data")
-        {
-            Ok(b) => b,
-            Err(e) => return e,
-        };
+        let encrypted_bytes =
+            match params.decode_base64(encrypted_b64, "Invalid base64 encrypted data") {
+                Ok(b) => b,
+                Err(e) => return e,
+            };
         let iv_bytes = match params.decode_base64(iv_b64, "Invalid base64 IV") {
             Ok(b) => b,
             Err(e) => return e,
@@ -496,9 +490,11 @@ impl DecryptData {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -520,11 +516,7 @@ impl DecryptData {
         };
 
         if authorized(state, prov_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         let container = match application.open_container(cont_name) {
@@ -625,9 +617,11 @@ impl CreatePKCS10 {
             Ok(d) => d,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => {
-                        RpcResponse::err(code as i32, format!("ConnectDev failed: 0x{:08X}", code), id)
-                    }
+                    Some(code) => RpcResponse::err(
+                        code as i32,
+                        format!("ConnectDev failed: 0x{:08X}", code),
+                        id,
+                    ),
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -640,22 +634,16 @@ impl CreatePKCS10 {
             Ok(a) => a,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => RpcResponse::err(
-                        code as i32,
-                        format!("OpenApp failed: 0x{:08X}", code),
-                        id,
-                    ),
+                    Some(code) => {
+                        RpcResponse::err(code as i32, format!("OpenApp failed: 0x{:08X}", code), id)
+                    }
                     None => load_failed(e.to_string(), id),
                 }
             }
         };
 
         if authorized(state, prov_name, dev_name, app_name).is_err() {
-            return RpcResponse::err(
-                -10,
-                "User not logged in. Call CheckPIN first.".into(),
-                id,
-            );
+            return RpcResponse::err(-10, "User not logged in. Call CheckPIN first.".into(), id);
         }
 
         // Determine the container name. The fallback sequence (random then
@@ -720,7 +708,12 @@ impl CreatePKCS10 {
         // Generate the key pair and the SPKI that goes into the CSR.
         let (spki, sig_alg_oid, hash_alg_id, ecc_key) = if is_ecc {
             match container.gen_ecc_key_pair(SGD_SM2_1) {
-                Ok(key) => (build_sm2_spki(&ecc_blob(&key)), OID_SM3_WITH_SM2, SGD_SM3, Some(key)),
+                Ok(key) => (
+                    build_sm2_spki(&ecc_blob(&key)),
+                    OID_SM3_WITH_SM2,
+                    SGD_SM3,
+                    Some(key),
+                ),
                 Err(e) => {
                     return match native_code(&e) {
                         Some(code) => RpcResponse::err(
@@ -781,11 +774,9 @@ impl CreatePKCS10 {
         };
         if let Err(e) = digest.update(&tbs) {
             return match native_code(&e) {
-                Some(code) => RpcResponse::err(
-                    code as i32,
-                    format!("Digest failed: 0x{:08X}", code),
-                    id,
-                ),
+                Some(code) => {
+                    RpcResponse::err(code as i32, format!("Digest failed: 0x{:08X}", code), id)
+                }
                 None => load_failed(e.to_string(), id),
             };
         }
@@ -793,11 +784,9 @@ impl CreatePKCS10 {
             Ok(h) => h,
             Err(e) => {
                 return match native_code(&e) {
-                    Some(code) => RpcResponse::err(
-                        code as i32,
-                        format!("Digest failed: 0x{:08X}", code),
-                        id,
-                    ),
+                    Some(code) => {
+                        RpcResponse::err(code as i32, format!("Digest failed: 0x{:08X}", code), id)
+                    }
                     None => load_failed(e.to_string(), id),
                 }
             }
@@ -921,7 +910,11 @@ mod tests {
 
     fn assert_every_resource_released(fake: &FakeSkfProvider) {
         assert_eq!(fake.call_count(Operation::CloseDevice), 1, "device");
-        assert_eq!(fake.call_count(Operation::CloseApplication), 1, "application");
+        assert_eq!(
+            fake.call_count(Operation::CloseApplication),
+            1,
+            "application"
+        );
         assert_eq!(fake.call_count(Operation::CloseContainer), 1, "container");
     }
 

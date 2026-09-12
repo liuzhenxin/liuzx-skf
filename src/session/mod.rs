@@ -102,7 +102,6 @@ impl SessionMarker {
     pub fn id(&self) -> &SessionId {
         &self.id
     }
-
 }
 
 /// State owned exclusively by one connection, held **by value**.
@@ -246,7 +245,10 @@ mod tests {
         let removed = state.invalidate_device("GM3000", "dev-a");
 
         assert_eq!(removed, 1);
-        assert_eq!(state.authorize(&key), Err(auth::AuthRejection::NotAuthorized));
+        assert_eq!(
+            state.authorize(&key),
+            Err(auth::AuthRejection::NotAuthorized)
+        );
     }
 
     #[test]
@@ -259,7 +261,10 @@ mod tests {
 
         state.invalidate_device("GM3000", "dev-a");
 
-        assert_eq!(state.authorize(&gone), Err(auth::AuthRejection::NotAuthorized));
+        assert_eq!(
+            state.authorize(&gone),
+            Err(auth::AuthRejection::NotAuthorized)
+        );
         assert_eq!(state.authorize(&present), Ok(()));
     }
 

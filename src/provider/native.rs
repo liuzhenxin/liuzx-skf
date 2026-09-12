@@ -26,8 +26,8 @@ use super::{
 use crate::config::SkfConfig;
 use crate::skf::api::SkfApi;
 use crate::skf::types::{
-    BLOCKCIPHERPARAM, BOOL, BYTE, CHAR, DEVHANDLE, DEVINFO, ECCPUBLICKEYBLOB,
-    ECCSIGNATUREBLOB, HANDLE, HAPPLICATION, HCONTAINER, RSAPUBLICKEYBLOB, SAR_OK, SGD_SM3, ULONG,
+    BLOCKCIPHERPARAM, BOOL, BYTE, CHAR, DEVHANDLE, DEVINFO, ECCPUBLICKEYBLOB, ECCSIGNATUREBLOB,
+    HANDLE, HAPPLICATION, HCONTAINER, RSAPUBLICKEYBLOB, SAR_OK, SGD_SM3, ULONG,
 };
 
 /// Largest device-name buffer the vendor API is given.
@@ -148,7 +148,9 @@ impl DeviceGuard for Arc<NativeDevice> {
         let _gate = gate_lock(&self.gate);
         let c_name = cstring(&self.name, "GetDevState")?;
         let mut state: ULONG = 0;
-        let ret = self.api.get_dev_state(c_name.as_ptr() as *mut CHAR, &mut state);
+        let ret = self
+            .api
+            .get_dev_state(c_name.as_ptr() as *mut CHAR, &mut state);
         if ret == SAR_OK {
             Ok(state)
         } else {
@@ -158,7 +160,9 @@ impl DeviceGuard for Arc<NativeDevice> {
 
     fn lock(&self, timeout: Duration) -> ProviderResult<()> {
         let _gate = gate_lock(&self.gate);
-        let ret = self.api.lock_dev(self.raw as DEVHANDLE, timeout.as_millis() as ULONG);
+        let ret = self
+            .api
+            .lock_dev(self.raw as DEVHANDLE, timeout.as_millis() as ULONG);
         if ret == SAR_OK {
             Ok(())
         } else {
@@ -198,7 +202,9 @@ impl DeviceGuard for Arc<NativeDevice> {
     fn random(&self, len: usize) -> ProviderResult<Vec<u8>> {
         let _gate = gate_lock(&self.gate);
         let mut buf = vec![0u8; len];
-        let ret = self.api.gen_random(self.raw as DEVHANDLE, buf.as_mut_ptr(), len as ULONG);
+        let ret = self
+            .api
+            .gen_random(self.raw as DEVHANDLE, buf.as_mut_ptr(), len as ULONG);
         if ret != SAR_OK {
             return Err(ProviderError::from_native(ret, "GenRandom"));
         }
@@ -227,7 +233,9 @@ impl DeviceGuard for Arc<NativeDevice> {
     fn set_label(&self, label: &str) -> ProviderResult<()> {
         let _gate = gate_lock(&self.gate);
         let mut c_label = cstring(label, "SetLabel")?.into_bytes_with_nul();
-        let ret = self.api.set_label(self.raw as DEVHANDLE, c_label.as_mut_ptr() as *mut CHAR);
+        let ret = self
+            .api
+            .set_label(self.raw as DEVHANDLE, c_label.as_mut_ptr() as *mut CHAR);
         if ret == SAR_OK {
             Ok(())
         } else {
@@ -256,9 +264,11 @@ impl DeviceGuard for Arc<NativeDevice> {
         let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "OpenApplication")?;
         let mut raw: HAPPLICATION = std::ptr::null_mut();
-        let ret = self
-            .api
-            .open_application(self.raw as DEVHANDLE, c_name.as_ptr() as *mut CHAR, &mut raw);
+        let ret = self.api.open_application(
+            self.raw as DEVHANDLE,
+            c_name.as_ptr() as *mut CHAR,
+            &mut raw,
+        );
         if ret != SAR_OK {
             return Err(ProviderError::from_native(ret, "OpenApplication"));
         }
@@ -342,10 +352,10 @@ impl ApplicationGuard for Arc<NativeApplication> {
     fn enum_containers(&self) -> ProviderResult<Vec<String>> {
         let _gate = gate_lock(&self.gate);
         let mut size: ULONG = 0;
-        let ret = self
-            .device
-            .api
-            .enum_container(self.raw as DEVHANDLE, std::ptr::null_mut(), &mut size);
+        let ret =
+            self.device
+                .api
+                .enum_container(self.raw as DEVHANDLE, std::ptr::null_mut(), &mut size);
         if ret != SAR_OK {
             return Err(ProviderError::from_native(ret, "EnumContainer"));
         }
@@ -353,7 +363,9 @@ impl ApplicationGuard for Arc<NativeApplication> {
             return Ok(Vec::new());
         }
         read_name_list(size, |buf, len| {
-            self.device.api.enum_container(self.raw as DEVHANDLE, buf, len)
+            self.device
+                .api
+                .enum_container(self.raw as DEVHANDLE, buf, len)
         })
     }
 
@@ -361,10 +373,12 @@ impl ApplicationGuard for Arc<NativeApplication> {
         let _gate = gate_lock(&self.gate);
         let c_pin = cstring(pin, "VerifyPIN")?;
         let mut retry_count: ULONG = 0;
-        let ret = self
-            .device
-            .api
-            .verify_pin(self.raw as DEVHANDLE, 1, c_pin.as_ptr() as *mut CHAR, &mut retry_count);
+        let ret = self.device.api.verify_pin(
+            self.raw as DEVHANDLE,
+            1,
+            c_pin.as_ptr() as *mut CHAR,
+            &mut retry_count,
+        );
         // A rejected PIN is a business outcome, not an error: the retry counter
         // is part of the observable contract.
         Ok(PinOutcome {
@@ -378,10 +392,11 @@ impl ApplicationGuard for Arc<NativeApplication> {
         let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "OpenContainer")?;
         let mut raw: HCONTAINER = std::ptr::null_mut();
-        let ret = self
-            .device
-            .api
-            .open_container(self.raw as DEVHANDLE, c_name.as_ptr() as *mut CHAR, &mut raw);
+        let ret = self.device.api.open_container(
+            self.raw as DEVHANDLE,
+            c_name.as_ptr() as *mut CHAR,
+            &mut raw,
+        );
         if ret != SAR_OK {
             return Err(ProviderError::from_native(ret, "OpenContainer"));
         }
@@ -440,7 +455,11 @@ impl Drop for NativeContainer {
     fn drop(&mut self) {
         let _gate = gate_lock(&self.gate);
         if self.raw != 0 {
-            let _ = self.application.device.api.close_container(self.raw as DEVHANDLE);
+            let _ = self
+                .application
+                .device
+                .api
+                .close_container(self.raw as DEVHANDLE);
         }
     }
 }
@@ -523,11 +542,11 @@ impl ContainerGuard for Arc<NativeContainer> {
         let _gate = gate_lock(&self.gate);
         let mut blob: ECCPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
         blob.BitLen = 256;
-        let ret = self
-            .application
-            .device
-            .api
-            .gen_ecc_key_pair(self.raw as DEVHANDLE, alg_id, &mut blob);
+        let ret =
+            self.application
+                .device
+                .api
+                .gen_ecc_key_pair(self.raw as DEVHANDLE, alg_id, &mut blob);
         if ret != SAR_OK {
             return Err(ProviderError::from_native(ret, "GenECCKeyPair"));
         }
@@ -541,11 +560,11 @@ impl ContainerGuard for Arc<NativeContainer> {
     fn gen_rsa_key_pair(&self, bits: u32) -> ProviderResult<RsaPublicKey> {
         let _gate = gate_lock(&self.gate);
         let mut blob: RSAPUBLICKEYBLOB = unsafe { std::mem::zeroed() };
-        let ret = self
-            .application
-            .device
-            .api
-            .gen_rsa_key_pair(self.raw as DEVHANDLE, bits, &mut blob);
+        let ret =
+            self.application
+                .device
+                .api
+                .gen_rsa_key_pair(self.raw as DEVHANDLE, bits, &mut blob);
         if ret != SAR_OK {
             return Err(ProviderError::from_native(ret, "GenRSAKeyPair"));
         }
@@ -698,10 +717,11 @@ impl DigestGuard for Arc<NativeDigest> {
     fn update(&self, data: &[u8]) -> ProviderResult<()> {
         let _gate = gate_lock(&self.gate);
         let mut data_buf = data.to_vec();
-        let ret = self
-            .device
-            .api
-            .digest_update(self.raw as DEVHANDLE, data_buf.as_mut_ptr(), data_buf.len() as ULONG);
+        let ret = self.device.api.digest_update(
+            self.raw as DEVHANDLE,
+            data_buf.as_mut_ptr(),
+            data_buf.len() as ULONG,
+        );
         if ret == SAR_OK {
             Ok(())
         } else {
@@ -743,13 +763,12 @@ impl NativeSkfProvider {
     /// The library is loaded **once** here; nothing else in this module may call
     /// `Library::new`.
     pub fn new(alias: impl Into<String>, lib_path: &str) -> ProviderResult<Self> {
-        let lib = unsafe { Library::new(lib_path) }.map_err(|e| {
-            ProviderError::LibraryLoadFailed {
+        let lib =
+            unsafe { Library::new(lib_path) }.map_err(|e| ProviderError::LibraryLoadFailed {
                 path: lib_path.to_string(),
                 arch: std::env::consts::ARCH,
                 detail: e.to_string(),
-            }
-        })?;
+            })?;
         Ok(Self {
             alias: alias.into(),
             api: Arc::new(SkfApi::new(lib)),
@@ -818,7 +837,9 @@ impl SkfProvider for NativeSkfProvider {
         let _gate = gate_lock(&self.gate);
         let c_name = cstring(name, "GetDevState")?;
         let mut state: ULONG = 0;
-        let ret = self.api.get_dev_state(c_name.as_ptr() as *mut CHAR, &mut state);
+        let ret = self
+            .api
+            .get_dev_state(c_name.as_ptr() as *mut CHAR, &mut state);
         if ret == SAR_OK {
             Ok(state)
         } else {
@@ -835,11 +856,9 @@ impl SkfProvider for NativeSkfProvider {
         let mut buf = vec![0u8; len];
         let mut name_len: ULONG = len as ULONG;
         let mut event: ULONG = 0;
-        let ret = self.api.wait_for_dev_event(
-            buf.as_mut_ptr() as *mut CHAR,
-            &mut name_len,
-            &mut event,
-        );
+        let ret =
+            self.api
+                .wait_for_dev_event(buf.as_mut_ptr() as *mut CHAR, &mut name_len, &mut event);
         if ret != SAR_OK {
             return Err(ProviderError::from_native(ret, "WaitForDevEvent"));
         }

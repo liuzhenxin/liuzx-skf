@@ -16,7 +16,7 @@ pub fn hex_to_bytes(hex: &str) -> Vec<u8> {
         .step_by(2)
         .filter_map(|i| {
             if i + 2 <= hex.len() {
-                u8::from_str_radix(&hex[i..i+2], 16).ok()
+                u8::from_str_radix(&hex[i..i + 2], 16).ok()
             } else {
                 None
             }
@@ -28,7 +28,10 @@ pub fn hex_to_bytes(hex: &str) -> Vec<u8> {
 /// Strips leading zeros and adds 0x00 pad if high bit is set.
 pub fn der_encode_integer(bytes: &[u8]) -> Vec<u8> {
     // Strip leading zeros
-    let start = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len() - 1);
+    let start = bytes
+        .iter()
+        .position(|&b| b != 0)
+        .unwrap_or(bytes.len() - 1);
     let trimmed = &bytes[start..];
 
     // If high bit set, prepend 0x00 (DER positive integer rule)
@@ -57,7 +60,6 @@ pub fn der_encode_length(len: usize) -> Vec<u8> {
     }
 }
 
-
 /// Wrap content with a DER tag + length
 pub fn der_wrap(tag: u8, content: &[u8]) -> Vec<u8> {
     let mut out = vec![tag];
@@ -69,14 +71,18 @@ pub fn der_wrap(tag: u8, content: &[u8]) -> Vec<u8> {
 /// DER SEQUENCE (tag 0x30)
 pub fn der_sequence(items: &[&[u8]]) -> Vec<u8> {
     let mut content = Vec::new();
-    for item in items { content.extend_from_slice(item); }
+    for item in items {
+        content.extend_from_slice(item);
+    }
     der_wrap(0x30, &content)
 }
 
 /// DER SET (tag 0x31)
 pub fn der_set(items: &[&[u8]]) -> Vec<u8> {
     let mut content = Vec::new();
-    for item in items { content.extend_from_slice(item); }
+    for item in items {
+        content.extend_from_slice(item);
+    }
     der_wrap(0x31, &content)
 }
 
@@ -113,13 +119,13 @@ pub fn der_context_0(content: &[u8]) -> Vec<u8> {
 }
 
 // Well-known OIDs
-pub const OID_CN: &[u8]  = &[0x55, 0x04, 0x03]; // 2.5.4.3
-pub const OID_O: &[u8]   = &[0x55, 0x04, 0x0A]; // 2.5.4.10
-pub const OID_OU: &[u8]  = &[0x55, 0x04, 0x0B]; // 2.5.4.11
-pub const OID_C: &[u8]   = &[0x55, 0x04, 0x06]; // 2.5.4.6
-pub const OID_ST: &[u8]  = &[0x55, 0x04, 0x08]; // 2.5.4.8
-pub const OID_L: &[u8]   = &[0x55, 0x04, 0x07]; // 2.5.4.7
-pub const OID_E: &[u8]   = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01]; // 1.2.840.113549.1.9.1
+pub const OID_CN: &[u8] = &[0x55, 0x04, 0x03]; // 2.5.4.3
+pub const OID_O: &[u8] = &[0x55, 0x04, 0x0A]; // 2.5.4.10
+pub const OID_OU: &[u8] = &[0x55, 0x04, 0x0B]; // 2.5.4.11
+pub const OID_C: &[u8] = &[0x55, 0x04, 0x06]; // 2.5.4.6
+pub const OID_ST: &[u8] = &[0x55, 0x04, 0x08]; // 2.5.4.8
+pub const OID_L: &[u8] = &[0x55, 0x04, 0x07]; // 2.5.4.7
+pub const OID_E: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01]; // 1.2.840.113549.1.9.1
 
 // SM2 OID: 1.2.156.10197.1.301
 pub const OID_SM2: &[u8] = &[0x2A, 0x81, 0x1C, 0xCF, 0x55, 0x01, 0x82, 0x2D];
@@ -141,11 +147,11 @@ pub fn build_subject_dn(subject: &str) -> Vec<u8> {
             let key = key.trim().to_uppercase();
             let oid = match key.as_str() {
                 "CN" => OID_CN,
-                "O"  => OID_O,
+                "O" => OID_O,
                 "OU" => OID_OU,
-                "C"  => OID_C,
+                "C" => OID_C,
                 "ST" => OID_ST,
-                "L"  => OID_L,
+                "L" => OID_L,
                 "E" | "EMAIL" | "EMAILADDRESS" => OID_E,
                 _ => continue,
             };
@@ -248,10 +254,16 @@ mod tests {
         // All-zero input collapses to a single zero byte.
         assert_eq!(der_encode_integer(&[0, 0, 0]), vec![0x02, 0x01, 0x00]);
         // Leading zeros are stripped.
-        assert_eq!(der_encode_integer(&[0x00, 0x00, 0x2A]), vec![0x02, 0x01, 0x2A]);
+        assert_eq!(
+            der_encode_integer(&[0x00, 0x00, 0x2A]),
+            vec![0x02, 0x01, 0x2A]
+        );
         // A high bit set requires a 0x00 pad to stay positive.
         assert_eq!(der_encode_integer(&[0x80]), vec![0x02, 0x02, 0x00, 0x80]);
-        assert_eq!(der_encode_integer(&[0xFF, 0xFF]), vec![0x02, 0x03, 0x00, 0xFF, 0xFF]);
+        assert_eq!(
+            der_encode_integer(&[0xFF, 0xFF]),
+            vec![0x02, 0x03, 0x00, 0xFF, 0xFF]
+        );
         // A value already below 0x80 needs no pad.
         assert_eq!(der_encode_integer(&[0x7F]), vec![0x02, 0x01, 0x7F]);
     }
@@ -262,13 +274,26 @@ mod tests {
 
         // Outer structure is a SEQUENCE whose declared length covers the buffer.
         assert_eq!(der[0], 0x30, "subject DN must be a SEQUENCE");
-        assert_eq!(tlv_total_len(&der), Some(der.len()), "length header must be self-consistent");
+        assert_eq!(
+            tlv_total_len(&der),
+            Some(der.len()),
+            "length header must be self-consistent"
+        );
 
         // The value encodings are visible in the buffer: UTF8String for CN/O and
         // PrintableString for the country attribute.
-        assert!(der.windows(2).any(|w| w == [0x0C, 0x04]), "UTF8String for CN=Test");
-        assert!(der.windows(2).any(|w| w == [0x0C, 0x03]), "UTF8String for O=Org");
-        assert!(der.windows(2).any(|w| w == [0x13, 0x02]), "PrintableString for C=CN");
+        assert!(
+            der.windows(2).any(|w| w == [0x0C, 0x04]),
+            "UTF8String for CN=Test"
+        );
+        assert!(
+            der.windows(2).any(|w| w == [0x0C, 0x03]),
+            "UTF8String for O=Org"
+        );
+        assert!(
+            der.windows(2).any(|w| w == [0x13, 0x02]),
+            "PrintableString for C=CN"
+        );
 
         // OIDs for CN (2.5.4.3) and C (2.5.4.6) are present verbatim.
         assert!(der.windows(3).any(|w| w == OID_CN));
@@ -283,7 +308,9 @@ mod tests {
 
         // An unknown key and a fragment without '=' must not be encoded.
         assert!(
-            !with_noise.windows(6).any(|w| w == b"Ignor\0".as_slice() || w == b"Ignored"),
+            !with_noise
+                .windows(6)
+                .any(|w| w == b"Ignor\0".as_slice() || w == b"Ignored"),
             "unknown attribute values must not appear in the DER output"
         );
         // A DN containing only unusable fragments yields an empty SEQUENCE.
@@ -307,13 +334,19 @@ mod tests {
 
         assert_eq!(der[0], 0x30, "SPKI must be a SEQUENCE");
         assert_eq!(tlv_total_len(&der), Some(der.len()));
-        assert!(der.windows(8).any(|w| w == OID_SM2), "SM2 curve OID must be present");
+        assert!(
+            der.windows(8).any(|w| w == OID_SM2),
+            "SM2 curve OID must be present"
+        );
         assert!(
             der.windows(7).any(|w| w == OID_EC_PUBLIC_KEY),
             "ecPublicKey OID must be present"
         );
         // Uncompressed point prefix plus the selected coordinate bytes.
-        assert!(der.windows(2).any(|w| w == [0x04, 0x00]), "BIT STRING payload starts with 0x04");
+        assert!(
+            der.windows(2).any(|w| w == [0x04, 0x00]),
+            "BIT STRING payload starts with 0x04"
+        );
         assert!(der.contains(&0x11));
         assert!(der.contains(&0x22));
     }
@@ -333,8 +366,14 @@ mod tests {
 
         assert_eq!(der[0], 0x30, "SPKI must be a SEQUENCE");
         assert_eq!(tlv_total_len(&der), Some(der.len()));
-        assert!(der.windows(9).any(|w| w == OID_RSA), "rsaEncryption OID must be present");
-        assert!(der.windows(2).any(|w| w == [0x05, 0x00]), "algorithm parameters must be NULL");
+        assert!(
+            der.windows(9).any(|w| w == OID_RSA),
+            "rsaEncryption OID must be present"
+        );
+        assert!(
+            der.windows(2).any(|w| w == [0x05, 0x00]),
+            "algorithm parameters must be NULL"
+        );
         // Exponent 65537 encodes as 0x02 0x03 0x01 0x00 0x01 after stripping the
         // leading zero byte.
         assert!(der.windows(5).any(|w| w == [0x02, 0x03, 0x01, 0x00, 0x01]));

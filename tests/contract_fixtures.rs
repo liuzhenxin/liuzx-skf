@@ -104,11 +104,7 @@ fn start_service() -> ServiceProcess {
 }
 
 /// One request/response exchange over a fresh WebSocket connection.
-async fn exchange(
-    port: u16,
-    setup: &[Value],
-    request: &Value,
-) -> Result<Value, String> {
+async fn exchange(port: u16, setup: &[Value], request: &Value) -> Result<Value, String> {
     let url = format!("ws://127.0.0.1:{}", port);
     let (mut socket, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -178,7 +174,11 @@ fn every_expected_method_has_a_fixture() {
         .copied()
         .filter(|method| !recorded.iter().any(|r| r == method))
         .collect();
-    assert!(missing.is_empty(), "methods without a fixture: {:?}", missing);
+    assert!(
+        missing.is_empty(),
+        "methods without a fixture: {:?}",
+        missing
+    );
 
     let unexpected: Vec<&String> = recorded
         .iter()
