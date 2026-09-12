@@ -1,0 +1,47 @@
+{
+  "method": "DigestFinal",
+  "setup": [
+    {
+      "jsonrpc": "2.0",
+      "method": "DigestInit",
+      "params": [
+        "GM3000",
+        "__record_device__",
+        1,
+        ""
+      ],
+      "id": 1
+    }
+  ],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "DigestFinal",
+    "params": [
+      "hash_1"
+    ],
+    "id": 2
+  },
+  "response": {
+    "error": -11,
+    "message": "Invalid or expired hash handle",
+    "id": 2
+  },
+  "normalize": {},
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:35:33.431Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": true,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {},
+    "recording_note": "DigestInit did not succeed; dependent request issued with the deterministic handle key \"hash_1\" to record the unknown-handle contract"
+  }
+}

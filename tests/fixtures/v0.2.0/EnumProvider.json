@@ -1,0 +1,41 @@
+{
+  "method": "EnumProvider",
+  "setup": [],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "EnumProvider",
+    "params": [],
+    "id": 1
+  },
+  "response": {
+    "error": 0,
+    "result": [
+      "GM3000",
+      "3000GM",
+      "FISHMAN"
+    ],
+    "id": 1
+  },
+  "normalize": {
+    "result": "<unordered>"
+  },
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:35:33.431Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": false,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {
+      "result": "src/main.rs EnumProvider returns ctx.config.libs.keys(), a HashMap, so the provider list has the same contents in a process-dependent order; compared as a set"
+    },
+    "recording_note": null
+  }
+}

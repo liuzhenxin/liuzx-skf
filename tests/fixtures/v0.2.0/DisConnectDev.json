@@ -1,0 +1,37 @@
+{
+  "method": "DisConnectDev",
+  "setup": [],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "DisConnectDev",
+    "params": [
+      1
+    ],
+    "id": 1
+  },
+  "response": {
+    "error": -11,
+    "message": "Invalid or expired handle",
+    "id": 1
+  },
+  "normalize": {},
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:35:33.431Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": true,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {},
+    "recording_note": "INTENTIONAL CONTRACT CHANGE (Phase 2, RES-01). The recorded response was the pre-refactor behaviour for params[0]=1: the integer was converted straight to a native DEVHANDLE and handed to the vendor library, which answered 0x0A000026 'DisControlDev failed'. A client-supplied integer is no longer accepted as a handle at all, so the request is rejected before reaching the vendor library. This is the defect RES-01 exists to remove; the new response is the contract.",
+    "contract_changed_at": "2026-09-11",
+    "contract_changed_by": "02-03"
+  }
+}

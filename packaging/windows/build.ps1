@@ -89,6 +89,7 @@ foreach ($Name in @(
     "install.ps1",
     "uninstall.bat",
     "uninstall.ps1",
+    "verify-service.ps1",
     "README-Windows-x86_64.md"
 )) {
     Copy-Item (Join-Path $PSScriptRoot $Name) -Destination $Dist -Force
@@ -97,10 +98,17 @@ foreach ($Name in @(
 if (Test-Path $Zip) { Remove-Item $Zip -Force }
 Compress-Archive -Path (Join-Path $Dist "*") -DestinationPath $Zip -CompressionLevel Optimal
 
+# Publish an independently verifiable checksum next to the ZIP as
+# <zip>.sha256 in sha256sum format.
+$hash = (Get-FileHash -Algorithm SHA256 -Path $Zip).Hash.ToLower()
+$sumFile = "$Zip.sha256"
+"$hash *$(Split-Path -Leaf $Zip)" | Set-Content -Encoding ascii -Path $sumFile
+
 Write-Host ""
 Write-Host "Build complete:"
 Write-Host "  Folder: $Dist"
 Write-Host "  ZIP   : $Zip"
+Write-Host "  SHA256: $sumFile"
 Write-Host ""
 Write-Host "Portable run : extract ZIP and double-click run.bat"
 Write-Host "Install service: right-click install.bat and run as administrator"

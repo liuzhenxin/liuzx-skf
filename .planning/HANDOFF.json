@@ -1,0 +1,81 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-09-11T19:40:00.000Z",
+  "phase": "02",
+  "phase_name": "session-authorization-and-resource-ownership",
+  "phase_dir": ".planning/phases/02-session-authorization-and-resource-ownership",
+  "plan": 4,
+  "task": 2,
+  "total_tasks": 14,
+  "status": "paused",
+  "completed_tasks": [
+    {
+      "id": "02-01",
+      "name": "Session skeleton and registry",
+      "status": "done",
+      "commit": "a4d849a"
+    },
+    {
+      "id": "02-02",
+      "name": "Per-session authorization with expiry",
+      "status": "done",
+      "commit": "43506b0"
+    },
+    {
+      "id": "02-03",
+      "name": "Opaque session-owned handles",
+      "status": "done",
+      "commit": "fed1550"
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": "02-04",
+      "name": "Protocol extraction, domain migration, release-on-error (wave 4, 4 tasks)",
+      "status": "not_started"
+    }
+  ],
+  "blockers": [],
+  "human_actions_pending": [
+    {
+      "action": "Reload ~/Library/LaunchAgents/com.liuzx.skf-service.plist when convenient",
+      "context": "Unloaded during Phase 1 to free ports; phase 2 tests use ephemeral ports so it is not blocking",
+      "blocking": false
+    },
+    {
+      "action": "Suspend the Parallels Windows 10 x64 VM if not needed",
+      "context": "Left running after an attempt to reach it; prlctl exec is unavailable in Parallels Standard",
+      "blocking": false
+    },
+    {
+      "action": "Push dev when ready",
+      "context": "local dev is 8 commits ahead of origin/dev (d477948)",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "A client-supplied integer is never converted to a native handle",
+      "rationale": "That conversion reached the vendor library unchecked and killed the service process; the DisConnectDev fixture was updated as a documented intentional contract change",
+      "phase": "02"
+    },
+    {
+      "decision": "Digest rejection message preserved byte-for-byte while the handle format changed",
+      "rationale": "Only the rejection is recorded by fixtures; DigestInit's success shape is not, so the format was free to change",
+      "phase": "02"
+    },
+    {
+      "decision": "HandleError is a fieldless enum and HandleTable's Debug reports counts only",
+      "rationale": "A rejection must not echo the offending value, and a handle string must never reach a log line",
+      "phase": "02"
+    },
+    {
+      "decision": "Session state is held by value, never behind an Arc",
+      "rationale": "It holds Send-but-not-Sync provider guards, so an Arc would break Send and need a forbidden unsafe impl Sync",
+      "phase": "02"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Run /gsd-execute-phase 2. Discovery skips 02-01..02-03 and resumes 02-04 at task 02-04-02, which migrates CreateContainer, DeleteContainer, GetContainerType, and ImportCertificate into src/domain/container.rs using the guards from src/provider and the Params helpers from src/protocol.",
+  "context_notes": "Wave 4 task 1 (protocol extraction) is done. Remaining: migrate 4 container branches, migrate 8 crypto/keys/pin branches, then verify RES-04 and sign off 02-VALIDATION.md. The fixtures covering those 12 branches recorded REJECTION paths only, so they catch a changed error code or message but say nothing about success paths; RES-04's release guarantee must therefore be proven by injecting failures through the fake provider and asserting Close* was recorded. A new lesson from this wave: a large group of device-dependent methods drifting at once can be a transient (the middleware reports no devices briefly after a service is killed), not a regression. The pre-Phase-2 binary was built in a worktree and reproduced it, which is how the misattribution was avoided. EnumDevice and FindCertificates are now declared environment-volatile for that reason."
+}

@@ -31,11 +31,50 @@ jobs:
           }
           Get-Item $asset | Format-List FullName, Length, LastWriteTime
 
+      - name: Verify checksum
+        shell: powershell
+        run: |
+          $zip = ".\dist\skf-service-windows-x64-gm3000-x86.zip"
+          $sum = "$zip.sha256"
+          if (-not (Test-Path $sum)) { throw "checksum file missing: $sum" }
+          $expected = ((Get-Content $sum) -split ' ')[0].Trim().ToLower()
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
+          if ($expected -ne $actual) { throw "checksum mismatch: expected $expected got $actual" }
+          Write-Host "SHA-256 verified: $actual"
+
+      - name: Verify extracted package contents and architecture
+        shell: powershell
+        run: |
+          $zip = ".\dist\skf-service-windows-x64-gm3000-x86.zip"
+          $out = ".\dist\_verify"
+          if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+          Expand-Archive -Path $zip -DestinationPath $out -Force
+          foreach ($required in @("skf-service.exe", "native\GM3000\windows\mtoken_gm3000.dll", "config\skf.yaml", "api")) {
+            if (-not (Test-Path (Join-Path $out $required))) { throw "package is missing $required" }
+          }
+          function Get-PeMachine([string]$Path) {
+            $fs = [IO.File]::OpenRead($Path)
+            try {
+              $br = New-Object IO.BinaryReader($fs)
+              $fs.Seek(0x3C, 'Begin') | Out-Null
+              $peOffset = $br.ReadInt32()
+              $fs.Seek($peOffset + 4, 'Begin') | Out-Null
+              return $br.ReadUInt16()
+            } finally { $fs.Dispose() }
+          }
+          foreach ($pe in @("skf-service.exe", "native\GM3000\windows\mtoken_gm3000.dll")) {
+            $machine = Get-PeMachine (Join-Path $out $pe)
+            if ($machine -ne 0x014C) { throw "$pe is not PE32/i386 (Machine=0x$('{0:X4}' -f $machine))" }
+          }
+          Write-Host "Extracted package verified: files present and both PE32/i386 (0x014C)"
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: skf-service-windows-x64-gm3000-x86
-          path: dist/skf-service-windows-x64-gm3000-x86.zip
+          path: |
+            dist/skf-service-windows-x64-gm3000-x86.zip
+            dist/skf-service-windows-x64-gm3000-x86.zip.sha256
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -47,5 +86,6 @@ jobs:
         run: |
           gh release create "$env:TAG_NAME" `
             ".\dist\skf-service-windows-x64-gm3000-x86.zip" `
+            ".\dist\skf-service-windows-x64-gm3000-x86.zip.sha256" `
             --title "SKF Service $env:TAG_NAME" `
             --generate-notes

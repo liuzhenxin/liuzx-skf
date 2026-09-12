@@ -1,0 +1,39 @@
+{
+  "method": "ECCVerify",
+  "setup": [],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "ECCVerify",
+    "params": [
+      "GM3000",
+      "__record_device__",
+      "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+      "U0tGIGZpeHR1cmUgZGF0YQ==",
+      "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+    ],
+    "id": 1
+  },
+  "response": {
+    "error": -2,
+    "message": "pubKey too short for ECCPUBLICKEYBLOB",
+    "id": 1
+  },
+  "normalize": {},
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:35:33.431Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": true,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {},
+    "recording_note": "client rejected: pubKey too short for ECCPUBLICKEYBLOB"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "method": "EnumDevice",
+  "setup": [],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "EnumDevice",
+    "params": [
+      "GM3000"
+    ],
+    "id": 1
+  },
+  "response": {
+    "error": 0,
+    "result": [
+      "BE40503E6E5D8F491AF943EDE321192"
+    ],
+    "id": 1
+  },
+  "normalize": {
+    "result": "<volatile:device_list>"
+  },
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:35:33.431Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": false,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {
+      "result": "The device list is middleware state, not code behaviour. The name the GM3000 middleware reports changed between recording (BE40503E...) and Phase 2 wave 4 (C03FA56F...) with identical pre-Phase-2 code, so asserting the value tests the environment rather than the service. The response shape and the error code are still compared."
+    },
+    "recording_note": "DECLARED VOLATILE in Phase 2 wave 4: this response is dominated by middleware/token state, and the value changed with no code change. Compared as a marker so the suite reports code regressions only."
+  }
+}

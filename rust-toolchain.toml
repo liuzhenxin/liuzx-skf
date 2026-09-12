@@ -1,0 +1,9 @@
+# Pin the toolchain so the rustfmt/clippy baseline is reproducible.
+#
+# Clippy's lint set changes between releases; without a pin, a CI image upgrade
+# could turn the gate red with no code change. The `i686-pc-windows-gnu` target
+# used by the CI compile check is installed explicitly there rather than here, so
+# a local `cargo build` never downloads a cross target it does not need.
+[toolchain]
+channel = "1.93.0"
+components = ["rustfmt", "clippy"]

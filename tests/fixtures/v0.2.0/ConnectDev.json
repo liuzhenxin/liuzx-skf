@@ -1,0 +1,39 @@
+{
+  "method": "ConnectDev",
+  "setup": [],
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "ConnectDev",
+    "params": [
+      "__record_device__"
+    ],
+    "id": 1
+  },
+  "response": {
+    "error": 167772195,
+    "message": "ConnectDev failed",
+    "id": 1
+  },
+  "normalize": {
+    "result": "<volatile:handle>"
+  },
+  "provenance": {
+    "recorded_from": "ecb5158c2101171e32c78236702877c5586780c2",
+    "recorded_at": "2026-09-11T05:35:33.431Z",
+    "platform": "darwin-x64",
+    "provider_alias": "GM3000",
+    "requires_hardware": true,
+    "observed_with_device": false,
+    "placeholder_params": [
+      "device",
+      "app",
+      "container",
+      "pin"
+    ],
+    "volatile_fields_reviewed": true,
+    "volatile_reasons": {
+      "result": "src/main.rs ConnectDev returns format!(\"{}\", h_dev as usize) — a process-local pointer value"
+    },
+    "recording_note": "client rejected: ConnectDev failed"
+  }
+}

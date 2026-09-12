@@ -152,6 +152,6 @@ pub const SGD_SHA256: ULONG = 0x00000004;
 pub struct RSAPUBLICKEYBLOB {
     pub AlgID: ULONG,
     pub BitLen: ULONG,
-    pub Modulus: [BYTE; 256],  // max 2048-bit
+    pub Modulus: [BYTE; 256], // max 2048-bit
     pub PublicExponent: [BYTE; 4],
 }

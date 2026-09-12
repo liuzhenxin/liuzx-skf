@@ -311,3 +311,32 @@ node tests/test_usb_event.js
 如果您在使用过程中遇到任何问题，欢迎通过微信扫码联系：
 
 ![WeChat QR Code](docs/wechat_qr.png)
+
+## 开发、模块布局与门禁
+
+重构后的 Rust 模块（见 `src/lib.rs`）：
+
+| 模块 | 职责 |
+| ---- | ---- |
+| `protocol/` | `RpcRequest`/`RpcResponse`/`Language` 与类型化参数提取 |
+| `domain/` | 安全相关处理器、只读/破坏性分类、受限方法集合 |
+| `session/` | 会话、授权（TTL/deadline）、不透明句柄表 |
+| `provider/` | SKF provider 抽象（native 守卫 + 可注入失败的 fake） |
+| `service_state/` | Windows 服务启动状态文件与退出码 |
+| `logging/` | 结构化 JSON 轮转日志与脱敏 |
+| `diagnostic/` | 本地诊断报告 |
+| `server/` | 传输、bind/serve、会话接缝 |
+| `config/` `crypto/` `skf/` | 配置、纯编码逻辑、SKF C ABI 适配 |
+
+常用命令：
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo check --target i686-pc-windows-gnu
+skf-service.exe diagnose --json        # 本地诊断（不泄露路径/凭据）
+```
+
+CI 门禁见 `docs/CI.md`；威胁模型见 `THREAT-MODEL.md`；会话/限制见
+`docs/SESSION-AND-LIMITS.md`；Windows 服务见 `docs/WINDOWS-SERVICE.md`。
