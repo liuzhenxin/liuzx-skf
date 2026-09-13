@@ -40,7 +40,11 @@ device-removal grant clearing.
   2. A missing/unreadable certificate or key fails startup with a distinct exit code, and no key material appears in the error output.
   3. The private key never appears in logs, `diagnose`, the status file, or release metadata.
   4. The 37 frozen fixtures still replay (loopback plaintext is the default), and `cargo check --target i686-pc-windows-gnu` stays green with the `ring` provider.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 07-01: Optional TLS termination for the WebSocket listener
+- [ ] 07-02: Secret safety and diagnostics for TLS
 
 ### Phase 8: Client Authentication
 **Goal**: 未认证连接不能调用任何方法；支持 mTLS 客户端证书与 bearer 令牌两种模式。
