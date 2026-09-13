@@ -16,6 +16,10 @@
 
 **Compatibility:** default behaviour is unchanged — plaintext loopback with v0.2.0 clients working unmodified; the 37 frozen fixtures still replay green (verified with the GM3000 token attached to the dev host).
 
+**Patch v0.4.1:** fixed a latent panic/invalid-JSON path when a configured
+provider library file is missing (`LockDev`/`UnlockDev`/`Transmit`/`RSAVerify`),
+surfaced by moving the phase 7-9 suites into the Linux CI job.
+
 **Known deferred items at close:** 2 human pre-release UAT flows (real operator CA + Windows service TLS lifecycle) plus documented minor tech debt; see `.planning/milestones/v0.4.0-MILESTONE-AUDIT.md`.
 
 ---

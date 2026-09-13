@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.4.1 — library-load degradation fix
+
+**Fix:** the four handlers that call the vendor API directly (`LockDev`,
+`UnlockDev`, `Transmit`, `RSAVerify`) `unwrap()`ed the dynamic library load. When
+a configured provider path existed in the config but the file was missing, the
+request task panicked; the dispatch-failure fallback then hand-formatted JSON with
+the unescaped panic text, so the client received **invalid JSON** instead of a
+response.
+
+- A load failure now returns the documented `-5 Load Lib Failed` response, matching
+  the migrated handlers (degraded mode, service keeps running).
+- Both serialize fallbacks now build JSON with `serde_json`, so no fallback path
+  can emit malformed JSON.
+- Found by moving the phase 7–9 test suites into the Linux CI job (the library is
+  absent there). Regression test:
+  `tests/restricted_methods.rs::unrestricted_methods_degrade_when_the_library_is_missing`.
+
+Supported deployments (the Windows package bundles the GM3000 DLL) are unaffected;
+this only changes the missing-library degraded path. Upgrade is a drop-in binary
+replacement.
+
 ## v0.4.0 — secure remote operation
 
 v0.4.0 lets the gateway be exposed beyond loopback safely: optional TLS, client
