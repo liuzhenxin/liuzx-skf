@@ -20,9 +20,30 @@
 | 并发连接 | 64（超限立即拒绝） |
 | 非 `WaitForDevEvent` 请求超时 | 30 秒（`SKF_FFI_TIMEOUT_SECONDS` 可覆盖） |
 | 原生调用串行化 | 每 provider 库一把全局锁 |
-| 非回环绑定 | 默认拒绝，需 `allow_remote: true` 或 `SKF_ALLOW_REMOTE=1` |
+| 非回环绑定 | 默认拒绝，需 `allow_remote: true`（或 `SKF_ALLOW_REMOTE=1`）**且**启用 TLS **且**启用客户端认证（`tls.client_auth: mtls` 或 `token`） |
 
 超时只让**调用方**停止等待，不会取消已在执行的厂商调用。
+
+### 传输安全与客户端认证
+
+- TLS 为可选。未配置 `tls:` 时仍为明文回环，与 v0.3.x 完全一致。
+- `tls.cert_file` / `tls.key_file` 指向 PEM 服务器证书链与私钥；两者必须同时提供，加载失败会导致启动失败（退出码 `1`），**绝不回退明文**。
+- `tls.client_auth`：
+  - `none`（默认）——不认证客户端，**仅允许回环**。
+  - `mtls`——要求客户端证书，用 `tls.client_ca_file` 指定的 CA 校验；缺失或不受信任的证书会在 TLS 握手阶段被拒。
+  - `token`——WebSocket 升级必须携带 `Authorization: Bearer <token>`；缺失或错误在建立会话前返回 `401`。
+- 令牌是密钥，**不得写入 YAML**：通过 `SKF_TLS_TOKEN` 或 `token_file`（权限仅限服务账户）提供。
+- 环境变量覆盖：`SKF_TLS_CERT`、`SKF_TLS_KEY`、`SKF_TLS_CLIENT_AUTH`、`SKF_TLS_CLIENT_CA`、`SKF_TLS_TOKEN`、`SKF_TLS_TOKEN_FILE`。
+- 已认证身份（mTLS 的 subject CN，或 `token`）可供会话审计；私钥与令牌不进入日志、`diagnose`、状态文件或发布元数据。
+
+### 授权审计
+
+每个授权决策都会记录一条结构化 JSON 日志（字段只有 provider/device/application、原因与计数，**不含 PIN、密钥、载荷或令牌**）：
+
+- `authorization.granted`——`CheckPIN` 成功建立授权。
+- `authorization.denied`——会话没有对应授权（`reason: not_authorized`）。
+- `authorization.expired`——授权已过期。
+- `device.unavailable`——某次操作发现设备缺失并清除了该设备的授权（带 `cleared` 计数）。
 
 ### 受限方法
 
@@ -33,6 +54,12 @@
 
 请求可带可选 `apiVersion`；未发送即视为版本 1（v0.2.0 客户端）。`GetProtocolVersion`
 返回 `{"min":1,"current":1,"service":"0.3.0"}`。请求高于当前版本返回 `-1` 与文档化消息。
+
+### 从 v0.3.x 迁移
+
+- 默认行为不变：不配置 `tls:` 时仍是明文回环，v0.2.0/v0.3.x 客户端无需修改（37 个夹具仍匹配）。
+- 如需远程暴露，必须同时配置三项控制：`allow_remote: true`、TLS 服务器证书，以及 `tls.client_auth: mtls` 或 `token`。
+- 准备材料：运维 CA 签发的服务器证书与私钥（或测试自签证书）；mTLS 需客户端 CA 包；token 模式需一个强随机令牌，经环境变量或受限权限文件下发。
 
 ---
 
@@ -66,10 +93,43 @@
 | Concurrent connections | 64 (excess refused) |
 | Non-`WaitForDevEvent` request timeout | 30 s (`SKF_FFI_TIMEOUT_SECONDS` overrides) |
 | Native-call serialization | one global lock per provider library |
-| Non-loopback binding | refused by default; needs `allow_remote: true` or `SKF_ALLOW_REMOTE=1` |
+| Non-loopback binding | refused by default; needs `allow_remote: true` (or `SKF_ALLOW_REMOTE=1`) **and** TLS **and** client authentication (`tls.client_auth: mtls` or `token`) |
 
 A timeout stops the **caller** waiting; it does not cancel a vendor call already
 running.
+
+### Transport security and client authentication
+
+- TLS is optional. With no `tls:` block the listener is plaintext loopback, exactly
+  as in v0.3.x.
+- `tls.cert_file` / `tls.key_file` are a PEM server certificate chain and private
+  key. Both are required to enable TLS; a load failure is fatal (exit code `1`) and
+  the service never falls back to plaintext.
+- `tls.client_auth`:
+  - `none` (default) — no client authentication, **loopback only**.
+  - `mtls` — a client certificate verified against `tls.client_ca_file`; a missing
+    or untrusted certificate fails the TLS handshake.
+  - `token` — the WebSocket upgrade must carry `Authorization: Bearer <token>`; a
+    missing or wrong token is rejected with `401` before a session exists.
+- The token is a secret and **must not be written into YAML**: supply it through
+  `SKF_TLS_TOKEN` or a `token_file` readable only by the service account.
+- Environment overrides: `SKF_TLS_CERT`, `SKF_TLS_KEY`, `SKF_TLS_CLIENT_AUTH`,
+  `SKF_TLS_CLIENT_CA`, `SKF_TLS_TOKEN`, `SKF_TLS_TOKEN_FILE`.
+- The authenticated identity (the mTLS subject CN, or `token`) is available for
+  audit; the private key and token never reach logs, `diagnose`, the status file,
+  or release metadata.
+
+### Authorization audit
+
+Every authorization decision is recorded as one structured JSON log line whose
+fields are only provider/device/application, a reason, and a count — **never a PIN,
+key, payload, or token**:
+
+- `authorization.granted` — `CheckPIN` established a grant.
+- `authorization.denied` — the session held no grant (`reason: not_authorized`).
+- `authorization.expired` — the grant's deadline passed.
+- `device.unavailable` — an operation found the device missing and cleared its
+  grants (with a `cleared` count).
 
 ### Restricted methods
 
@@ -83,3 +143,14 @@ A request may carry an optional `apiVersion`; omitting it means version 1 (a
 v0.2.0 client). `GetProtocolVersion` returns
 `{"min":1,"current":1,"service":"0.3.0"}`. Requesting a version above the current
 one returns `-1` with a documented message.
+
+### Migrating from v0.3.x
+
+- Default behaviour is unchanged: with no `tls:` block the listener is plaintext
+  loopback, and v0.2.0/v0.3.x clients work unmodified (the 37 fixtures still match).
+- To expose the service on a network, configure all three controls:
+  `allow_remote: true`, a TLS server certificate, and `tls.client_auth: mtls` or
+  `token`.
+- Prepare: a server certificate and key (issued by your CA, or a self-signed test
+  pair); a client CA bundle for mTLS; a strong random token for token mode,
+  delivered through the environment or a permission-restricted file.

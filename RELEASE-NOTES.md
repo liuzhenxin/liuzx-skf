@@ -1,5 +1,57 @@
 # Release Notes
 
+## v0.4.0 — secure remote operation
+
+v0.4.0 lets the gateway be exposed beyond loopback safely: optional TLS, client
+authentication, a tightened exposure rule, and a structured authorization audit.
+None of it is enabled by default, so a v0.3.x deployment can upgrade as a drop-in
+binary replacement.
+
+### Added
+
+- **TLS termination (opt-in).** A `tls:` block with `cert_file` and `key_file`
+  makes the WebSocket listener serve TLS via `rustls` with the `ring` backend
+  (minimum TLS 1.2). With no `tls:` block the listener stays plaintext loopback.
+  A missing or unreadable certificate/key is a fatal configuration error (exit
+  code `1`); the service never falls back to plaintext.
+- **Client authentication.** `tls.client_auth` accepts `none` (default), `mtls`,
+  or `token`. `mtls` verifies a client certificate against `tls.client_ca_file`;
+  `token` requires `Authorization: Bearer <token>` in the WebSocket upgrade
+  (rejected with `401` before a session exists). Secrets come from
+  `SKF_TLS_TOKEN`/`tls.token_file`, never inline YAML.
+- **Tightened exposure rule.** A non-loopback bind now requires **all** of:
+  `allow_remote` opt-in, TLS, and client authentication. The refusal happens before
+  the socket is opened (exit code `3`) and names the missing controls.
+- **Authorization audit.** Every decision is one structured JSON line:
+  `authorization.granted`, `authorization.denied` (with reason),
+  `authorization.expired`, and `device.unavailable` (with a cleared count). Fields
+  are limited to provider/device/application/reason/count, so no PIN, key, payload,
+  or token is recorded.
+- `diagnose` now reports `tls_enabled` and `tls_cert_loaded` booleans (no paths or
+  key material).
+
+### Compatibility
+
+- **Default behaviour is unchanged.** Without a `tls:` block the listener is
+  plaintext loopback and v0.2.0/v0.3.x clients work unmodified. The 37 frozen
+  v0.2.0 fixtures are replayed on every run and still match.
+- `GetProtocolVersion` still reports the API version; only the `service` string
+  tracks the crate version.
+
+### Migrating from v0.3.x
+
+- Local/loopback deployments: no change required.
+- Network deployments: configure `allow_remote: true`, a server certificate/key,
+  and `tls.client_auth: mtls` or `token`. See `docs/WINDOWS-SERVICE.md` and the
+  v0.4.0 section of `THREAT-MODEL.md`.
+
+### Security notes
+
+- The private key and bearer token never appear in logs, `diagnose` output, the
+  status file, or release metadata.
+- A bearer token is acceptable without TLS only on loopback; a non-loopback bind
+  always requires TLS.
+
 ## v0.3.1 — device-removal authorization fix
 
 **Fix:** when an operation failed at `ConnectDev` (the device was physically gone),

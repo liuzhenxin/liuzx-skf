@@ -42,12 +42,57 @@ code and writes a `failed` status file:
 |------|-------|---------|
 | `1` | `config` | configuration could not be read or parsed |
 | `2` | `provider` | the default provider has no path for this OS |
-| `3` | `bind` | the WebSocket listener could not be bound |
+| `3` | `bind` | the WebSocket listener could not be bound, **or** a non-loopback bind was refused because the exposure rule was not satisfied |
 | `4` | `serve` | a runtime error while serving |
 
 The non-zero code makes the restart-on-failure action configured by the installer
 (`sc failure LiuZXSKFService reset= 86400 actions= restart/5000/restart/10000/restart/60000`)
 actually fire.
+
+## TLS and client authentication
+
+TLS is optional. Without a `tls:` block the listener is plaintext loopback, exactly
+as before v0.4.0. To serve TLS, point the service at a PEM certificate chain and
+private key:
+
+```yaml
+default: "GM3000"
+vendor:
+  "055c:e618": "GM3000"
+tls:
+  cert_file: "config/server.crt"
+  key_file: "config/server.key"
+  client_auth: "none"        # none | mtls | token
+GM3000:
+  windows: "native\\GM3000\\windows\\mtoken_gm3000.dll"
+```
+
+Client authentication (`tls.client_auth`):
+
+- `none` — no client authentication. Accepted **only** on a loopback bind.
+- `mtls` — a client certificate is required and verified against `client_ca_file`
+  (a PEM CA bundle). A missing or untrusted certificate fails the TLS handshake.
+- `token` — the WebSocket upgrade must carry `Authorization: Bearer <token>`; a
+  missing or wrong token is rejected with `401` before a session exists.
+
+A non-loopback bind requires **all** of: `allow_remote: true` (or
+`SKF_ALLOW_REMOTE=1`), TLS (`cert_file` + `key_file`), and client authentication.
+Otherwise the service stops at the `bind` stage with exit code `3` and a message
+naming the missing controls.
+
+### Secret handling
+
+The private key and the bearer token are secrets:
+
+- Never write the token into the YAML. Supply it through `SKF_TLS_TOKEN` or a
+  `token_file` readable only by the service account.
+- The token and the private key never appear in logs, `diagnose` output, the status
+  file, or release metadata.
+- `skf-service.exe diagnose --json` reports only `tls_enabled` and
+  `tls_cert_loaded` booleans (no paths, no key material).
+
+Environment overrides: `SKF_TLS_CERT`, `SKF_TLS_KEY`, `SKF_TLS_CLIENT_AUTH`,
+`SKF_TLS_CLIENT_CA`, `SKF_TLS_TOKEN`, `SKF_TLS_TOKEN_FILE`.
 
 ## Provider resolution: fatal vs degraded
 
@@ -105,6 +150,14 @@ Executable: C:\Program Files (x86)\LiuZX\SKF Service\skf-service.exe
 ```
 Startup: Failed (stage=bind, code=3)
 Reason: bind error: failed to bind WebSocket listener on 127.0.0.1:9001: ...
+Service 'LiuZXSKFService': Stopped (pid=0)
+```
+
+A refused remote bind uses the same stage and code with a different reason:
+
+```
+Startup: Failed (stage=bind, code=3)
+Reason: bind error: refusing to bind WebSocket listener to non-loopback address 0.0.0.0:9001; remote binding requires all of: ...
 Service 'LiuZXSKFService': Stopped (pid=0)
 ```
 

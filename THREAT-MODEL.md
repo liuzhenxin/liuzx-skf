@@ -1,7 +1,7 @@
 # Threat Model
 
 This documents the trust boundary, the deliberate exposure and credential
-decisions, and the known limitations of the v0.3.0 SKF gateway. It is written for
+decisions, and the known limitations of the v0.4.0 SKF gateway. It is written for
 operators and reviewers; it is not a formal security proof.
 
 ## Assets
@@ -17,20 +17,47 @@ operators and reviewers; it is not a formal security proof.
 
 | Boundary | Trust |
 |----------|-------|
-| WebSocket listener | Loopback by default. A non-loopback bind requires explicit opt-in (`allow_remote` / `SKF_ALLOW_REMOTE`). No TLS, no client authentication. |
+| WebSocket listener | Loopback by default (plaintext). A non-loopback bind requires **all** of explicit opt-in (`allow_remote` / `SKF_ALLOW_REMOTE`), TLS (`tls.cert_file` + `tls.key_file`), and client authentication (`tls.client_auth: mtls` or `token`). |
 | HTTP demo server | Serves static files. In console mode it defaults to `0.0.0.0:8000`; this is a known boundary, not covered by the loopback gate. |
 | Vendor library (GM3000 DLL) | Trusted, but its thread safety is undocumented and it is a `dlopen`/`LoadLibrary` target inside the install directory. |
 | Service account | `LocalSystem`, required for GM3000 driver access. |
 | Install directory | `%ProgramFiles(x86)%\LiuZX\SKF Service`, restricted by the installer to `SYSTEM`/`Administrators` full and `Users` read+execute. |
-| Log file | Non-sensitive by policy; a source-scan test enforces it. |
+| Log file | Non-sensitive by policy; a source-scan test enforces it. Audit events are structured and non-sensitive by construction. |
+
+## Transport security and client authentication (v0.4.0)
+
+TLS is **opt-in**. With no `tls:` block the listener is plaintext loopback,
+exactly as in v0.3.x, so existing clients are unaffected.
+
+| Setting | Meaning |
+|---------|---------|
+| `tls.cert_file` / `tls.key_file` | PEM server certificate chain and private key. Both required to enable TLS. A load failure is a fatal configuration error (exit code `1`); the service never falls back to plaintext. |
+| `tls.client_auth` | `none` (default), `mtls`, or `token`. An unknown value is a fatal configuration error. |
+| `tls.client_ca_file` | PEM CA bundle used to verify client certificates. Required for `mtls`. |
+| `tls.token_file` | File containing the bearer token, for `token` mode. |
+| `SKF_TLS_CERT` / `SKF_TLS_KEY` / `SKF_TLS_CLIENT_CA` / `SKF_TLS_CLIENT_AUTH` | Environment overrides for the paths and mode. |
+| `SKF_TLS_TOKEN` / `SKF_TLS_TOKEN_FILE` | The bearer-token value, or a file containing it. |
+
+The TLS provider is `rustls` with the `ring` backend (chosen so the i686 Windows
+build stays reproducible) and a minimum of TLS 1.2. The private key and the bearer
+token are never written to logs, `diagnose` output, the status file, or release
+metadata; `diagnose` reports only `tls_enabled` / `tls_cert_loaded` booleans.
+
+The bearer token is a **secret and must not be written into the committed YAML**.
+Supply it through `SKF_TLS_TOKEN` or a `token_file` whose permissions restrict
+reading to the service account. `mtls` uses a client certificate verified against
+`client_ca_file`; the verified subject CN is retained for audit, the certificate
+bytes are not.
 
 ## Exposure decision
 
-The protocol has no transport authentication or encryption, so v0.3.0 keeps the
-service **loopback-only by default** and does not claim public-service capability.
-Exposing it to a network requires an explicit opt-in and is the operator's
-responsibility to place behind a trusted boundary. A future milestone may add TLS
-and client authentication.
+Remote exposure is allowed only when **all three** controls are configured:
+explicit opt-in, TLS, and client authentication. The service refuses any other
+non-loopback bind before opening the socket (exit code `3`) and names the missing
+controls in the message. Loopback needs none of them.
+
+`client_auth: none` is therefore acceptable only on loopback. A token may be used
+without TLS on loopback; a non-loopback bind always requires TLS.
 
 ## Credential-retention decision
 
@@ -58,14 +85,25 @@ operation finds the device unavailable.
   `SKF_RESTRICT_LEGACY=1`; they never disappear.
 - **Log redaction** — no request parameters, PINs, keys, or decrypted payloads are
   logged; a source scan fails the build if a log macro names one.
+- **Authorization audit** — every authorization decision (`authorization.granted`,
+  `authorization.denied` with a reason, `authorization.expired`,
+  `device.unavailable` with a cleared count) is recorded as one structured JSON
+  line. The event type can only carry provider, device, and application names, a
+  reason, and a count, so no PIN, key, payload, or token can be recorded.
 - **Install hardening** — restrictive directory ACL verified by the installer.
 - **Release integrity** — SHA-256 checksum and PE32/i386 verification in the
   release workflow.
 
 ## Known limitations
 
-- **No TLS or client authentication.** Network exposure depends on external
-  controls; that is why loopback is the default.
+- **TLS and client authentication are opt-in.** The default remains plaintext
+  loopback, so a deployment that enables remote access must supply certificates and
+  a token or client CA itself. Certificate rotation is manual.
+- **A bearer token over plaintext is acceptable only on loopback.** Non-loopback
+  binds always require TLS, so the token is never the sole control on a network.
+- **There is no per-client authorization policy.** All authenticated clients have
+  the same access to the configured provider/device operations; the identity (CN or
+  token) is recorded for audit, not used to scope operations.
 - **The HTTP demo can bind non-loopback** in console mode. It serves static files
   only; it is out of scope for the loopback gate.
 - **`IssueCertificate` is a mock** and its OpenSSL subprocess is not bounded by the
@@ -84,5 +122,8 @@ operation finds the device unavailable.
 - `.planning/phases/02-session-authorization-and-resource-ownership/02-CONTEXT.md`
 - `.planning/phases/03-transport-hardening-and-concurrency/03-CONTEXT.md`
 - `.planning/phases/05-windows-service-reliability/05-CONTEXT.md`
+- `.planning/phases/07-tls-termination/07-CONTEXT.md`
+- `.planning/phases/08-client-authentication/08-RESEARCH.md`
+- `.planning/phases/09-bind-policy-and-authorization-audit/09-RESEARCH.md`
 - `docs/SESSION-AND-LIMITS.md`, `docs/OPERATION-CLASSIFICATION.md`,
   `docs/WINDOWS-SERVICE.md`
