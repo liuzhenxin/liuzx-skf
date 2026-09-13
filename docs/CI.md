@@ -9,7 +9,7 @@ pushes to `main` and `dev`.
 |-----|--------|---------|-----|
 | `fmt` | ubuntu-latest | `cargo fmt --all -- --check` | Keeps the tree rustfmt-clean (QUAL-01) |
 | `clippy` | ubuntu-latest | `cargo clippy --all-targets -- -D warnings` | Warnings are hard failures (QUAL-02) |
-| `test` | ubuntu-latest | `cargo test --lib`, invariant suites, fixture structural checks, and the vendor-free integration suites | Fast hardware-free signal |
+| `test` | ubuntu-latest | `cargo test --lib`, invariant suites, fixture structural checks, the vendor-free integration suites, and the hermetic TLS/client-auth/audit suites | Fast hardware-free signal |
 | `windows-i686` | ubuntu-latest | `cargo check --target i686-pc-windows-gnu` | Guards the PE32/i386 constraint |
 | `gate-selftest` | ubuntu-latest | writes a failing test, asserts `cargo test` exits non-zero | Proves the gate is failure-sensitive (QUAL-04) |
 
@@ -29,6 +29,17 @@ The i686 check needs the target once:
 ```bash
 rustup target add i686-pc-windows-gnu
 ```
+
+The non-hosted suites and why:
+
+- `tests/tls.rs`, `tests/client_auth.rs`, `tests/audit.rs` **are** hosted: TLS
+  certificates are generated in-process with `rcgen`, and tokens are supplied by the
+  test itself, so no USB token or vendor middleware is required.
+- `tests/log_redaction.rs`, `tests/protocol_version.rs`, `tests/restricted_methods.rs`
+  and `tests/loopback_gate.rs` are hosted for the same reason.
+- `tests/contract_fixtures.rs` is **not** hosted: it starts the real binary and
+  replays the 37 frozen v0.2.0 fixtures, which needs the GM3000 middleware stack
+  installed — see the next section.
 
 ## The contract replay is a local/pre-release check, not a hosted job
 

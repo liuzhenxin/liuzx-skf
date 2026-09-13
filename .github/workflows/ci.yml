@@ -46,7 +46,12 @@ jobs:
       - name: Fixture structural checks
         run: cargo test --test contract_fixtures fixture_count_is_at_least_37 && cargo test --test contract_fixtures every_expected_method_has_a_fixture
       - name: Integration suites that do not need the vendor library
-        run: cargo test --test session_isolation --test session_lifecycle --test transport_limits --test ffi_serialization --test loopback_gate
+        run: cargo test --test session_isolation --test session_lifecycle --test transport_limits --test ffi_serialization --test loopback_gate --test protocol_version --test restricted_methods --test log_redaction
+      # Phase 7-9 security suites. Certificates are generated in-process with
+      # `rcgen` and tokens come from the test process, so these need no USB token
+      # and no vendor middleware.
+      - name: TLS and client-authentication suites (hermetic, no token)
+        run: cargo test --test tls --test client_auth --test audit
 
   # NOTE: the frozen v0.2.0 contract replay (`cargo test --test contract_fixtures`)
   # is intentionally NOT a hosted job. It needs the GM3000 macOS *middleware*
