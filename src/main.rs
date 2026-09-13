@@ -273,7 +273,11 @@ impl skf_service::server::Session for JsonRpcSession {
                             request_id,
                         );
                         return serde_json::to_string(&response).unwrap_or_else(|e| {
-                            format!("{{\"error\":-1,\"message\":\"serialize failed: {}\"}}", e)
+                            serde_json::json!({
+                                "error": -1,
+                                "message": format!("serialize failed: {}", e)
+                            })
+                            .to_string()
                         });
                     }
                 }
@@ -284,7 +288,11 @@ impl skf_service::server::Session for JsonRpcSession {
                     self.guard.put_state(state);
                     self.lang = lang;
                     serde_json::to_string(&response).unwrap_or_else(|e| {
-                        format!("{{\"error\":-1,\"message\":\"serialize failed: {}\"}}", e)
+                        serde_json::json!({
+                            "error": -1,
+                            "message": format!("serialize failed: {}", e)
+                        })
+                        .to_string()
                     })
                 }
                 Err(join) => {
@@ -293,10 +301,11 @@ impl skf_service::server::Session for JsonRpcSession {
                     // keep answering instead of panicking on the next request.
                     self.guard.put_state(SessionState::new(ttl));
                     self.lang = Language::EN;
-                    format!(
-                        "{{\"error\":-1,\"message\":\"dispatch task failed: {}\"}}",
-                        join
-                    )
+                    serde_json::json!({
+                        "error": -1,
+                        "message": format!("dispatch task failed: {}", join)
+                    })
+                    .to_string()
                 }
             }
         })
@@ -420,6 +429,39 @@ fn provider_load_failed(
         Language::EN => format!("Load Lib Failed: {}", err),
     };
     RpcResponse::err(-5, msg, id)
+}
+
+/// Load an SKF library for a resolved path, degrading instead of panicking.
+///
+/// The migrated handlers reach the vendor through `ctx.resolve`, which yields an
+/// `UnavailableProvider` when the library is missing. The four unmigrated branches
+/// (`LockDev`, `UnlockDev`, `Transmit`, `RSAVerify`) call the low-level `SkfApi`
+/// directly and used to `unwrap()` the load, so a missing library panicked the
+/// request task. Returning the documented `Load Lib Failed` response keeps them
+/// consistent with the migrated handlers (found by the Linux CI run).
+fn load_library_api(
+    lib_path: &str,
+    lang: &Language,
+    id: Option<serde_json::Value>,
+) -> Result<SkfApi, RpcResponse> {
+    match unsafe { Library::new(lib_path) } {
+        Ok(lib) => Ok(SkfApi::new(lib)),
+        Err(e) => {
+            let msg = match lang {
+                Language::CN => format!(
+                    "加载库失败: {} (process architecture: {})",
+                    e,
+                    std::env::consts::ARCH
+                ),
+                Language::EN => format!(
+                    "Load Lib Failed: {} (process architecture: {})",
+                    e,
+                    std::env::consts::ARCH
+                ),
+            };
+            Err(RpcResponse::err(-5, msg, id))
+        }
+    }
 }
 
 /// Clear this session's authorization for a device an operation just found missing.
@@ -2159,7 +2201,10 @@ fn handle_request(
                     return RpcResponse::err(-1, msg, id);
                 }
             };
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+            let api = match load_library_api(&lib_path, lang, id.clone()) {
+                Ok(api) => api,
+                Err(response) => return response,
+            };
 
             let c_dev = std::ffi::CString::new(dev_name).unwrap();
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
@@ -2208,7 +2253,10 @@ fn handle_request(
                     return RpcResponse::err(-1, msg, id);
                 }
             };
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+            let api = match load_library_api(&lib_path, lang, id.clone()) {
+                Ok(api) => api,
+                Err(response) => return response,
+            };
 
             let c_dev = std::ffi::CString::new(dev_name).unwrap();
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
@@ -2267,7 +2315,10 @@ fn handle_request(
                     return RpcResponse::err(-1, msg, id);
                 }
             };
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+            let api = match load_library_api(&lib_path, lang, id.clone()) {
+                Ok(api) => api,
+                Err(response) => return response,
+            };
 
             let c_dev = std::ffi::CString::new(dev_name).unwrap();
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
@@ -2389,7 +2440,10 @@ fn handle_request(
                     return RpcResponse::err(-1, msg, id);
                 }
             };
-            let api = SkfApi::new(unsafe { Library::new(&lib_path).unwrap() });
+            let api = match load_library_api(&lib_path, lang, id.clone()) {
+                Ok(api) => api,
+                Err(response) => return response,
+            };
 
             let c_dev = std::ffi::CString::new(dev_name).unwrap();
             let mut h_dev: DEVHANDLE = std::ptr::null_mut();
