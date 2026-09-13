@@ -54,7 +54,8 @@ None.
 - TLS/client-auth crate availability: the local cargo registry needed a sparse mirror; `~/.cargo/config.toml` was switched to `sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/` (backup at `~/.cargo/config.toml.bak`). CI fetches from crates.io normally.
 - Vendor DLL thread safety remains unproven; per-device concurrency stays deferred.
 - The HTTP demo can still bind non-loopback in console mode (documented boundary).
-- [Phase 7] The 37-fixture contract replay cannot run on the Mac while the GM3000 token is attached to the Windows VM (`ConnectDev` returns 0x00000001 instead of the recorded 0x0A000023). Re-run with the token on the Mac before the v0.4.0 audit.
+- [Phase 7/8] The 37-fixture contract replay cannot run on the Mac while the GM3000 token is attached to the Windows VM (`ConnectDev` returns 0x00000001 instead of the recorded 0x0A000023). Re-run with the token on the Mac before the v0.4.0 audit.
+- [Phase 8] `client_auth: none` is now loopback-only; phase 9 will additionally require TLS for any non-loopback bind.
 - `IssueCertificate` remains a Mock (real CA integration deferred).
 
 ## Deferred Items
@@ -70,6 +71,6 @@ Carried into the v0.4.0 backlog (not in this milestone): per-device concurrency/
 
 ## Session Continuity
 
-Last session: 2026-09-13T11:20:00.000Z
-Stopped at: Phase 7 executed and verified
-Resume file: .planning/phases/07-tls-termination/07-VERIFICATION.md
+Last session: 2026-09-13T11:40:00.000Z
+Stopped at: Phase 8 executed and verified
+Resume file: .planning/phases/08-client-authentication/08-VERIFICATION.md

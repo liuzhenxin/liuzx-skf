@@ -25,7 +25,7 @@ device-removal grant clearing.
 ### 🚧 v0.4.0 Secure Remote Operation (In Progress)
 
 - [x] Phase 7: TLS Termination (TLS-01..04, COMPAT-01) — 2/2 plans
-- [ ] Phase 8: Client Authentication (AUTH-01..04)
+- [x] Phase 8: Client Authentication (AUTH-01..04) — 3/3 plans
 - [ ] Phase 9: Bind Policy and Authorization Audit (BIND-01..03, AUD-01..02)
 - [ ] Phase 10: Documentation and Quality Closeout (COMPAT-02, QA-01, QA-02)
 
@@ -58,9 +58,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 08-01: Client-auth configuration, modes, and identity types
-- [ ] 08-02: Server-side mTLS and bearer-token enforcement
-- [ ] 08-03: Bind coupling and hermetic client-auth tests
+- [x] 08-01: Client-auth configuration, modes, and identity types
+- [x] 08-02: Server-side mTLS and bearer-token enforcement
+- [x] 08-03: Bind coupling and hermetic client-auth tests
 
 ### Phase 9: Bind Policy and Authorization Audit
 **Goal**: 非回环暴露只有在真正的传输安全与访问控制齐备时才被允许，并留下非敏感的授权决策审计。
@@ -89,6 +89,6 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1-6 | v0.3.0 | 20/20 | Complete | 2026-09-12 |
 | 7. TLS Termination | v0.4.0 | 2/2 | Complete | 2026-09-12 |
-| 8. Client Authentication | v0.4.0 | 0/0 | Not started | - |
+| 8. Client Authentication | v0.4.0 | 3/3 | Complete | 2026-09-12 |
 | 9. Bind Policy and Audit | v0.4.0 | 0/0 | Not started | - |
 | 10. Docs and Quality | v0.4.0 | 0/0 | Not started | - |
