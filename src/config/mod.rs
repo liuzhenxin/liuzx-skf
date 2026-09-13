@@ -26,9 +26,15 @@ pub struct TlsConfig {
     /// PEM private-key path (a secret; never logged or diagnosed).
     #[serde(default)]
     pub key_file: Option<String>,
-    /// Client-authentication mode: `none` in Phase 7; `mtls`/`token` in Phase 8.
+    /// Client-authentication mode: `none`, `mtls`, or `token`.
     #[serde(default)]
     pub client_auth: Option<String>,
+    /// PEM CA bundle used to verify client certificates (mTLS).
+    #[serde(default)]
+    pub client_ca_file: Option<String>,
+    /// File containing the bearer token (token mode). A secret; never logged.
+    #[serde(default)]
+    pub token_file: Option<String>,
 }
 
 /// Raw provider configuration as read from YAML.
@@ -63,6 +69,12 @@ impl SkfConfig {
     pub const TLS_KEY_ENV: &'static str = "SKF_TLS_KEY";
     /// Environment override for the client-authentication mode.
     pub const TLS_CLIENT_AUTH_ENV: &'static str = "SKF_TLS_CLIENT_AUTH";
+    /// Environment override for the mTLS client CA bundle path.
+    pub const TLS_CLIENT_CA_ENV: &'static str = "SKF_TLS_CLIENT_CA";
+    /// Environment variable holding the bearer token value directly.
+    pub const TLS_TOKEN_ENV: &'static str = "SKF_TLS_TOKEN";
+    /// Environment override for the bearer-token file path.
+    pub const TLS_TOKEN_FILE_ENV: &'static str = "SKF_TLS_TOKEN_FILE";
 
     /// Whether non-loopback binding is permitted.
     ///
@@ -105,21 +117,68 @@ impl SkfConfig {
             .unwrap_or_else(|| "none".to_string())
     }
 
-    /// Validate the TLS block before any listener is created.
+    /// The configured mTLS client CA path, with the environment override first.
+    pub fn tls_client_ca_path(&self) -> Option<String> {
+        env_non_empty(Self::TLS_CLIENT_CA_ENV)
+            .or_else(|| self.tls.as_ref().and_then(|t| t.client_ca_file.clone()))
+            .filter(|value| !value.trim().is_empty())
+    }
+
+    /// The configured bearer token, read from the environment or a file.
     ///
-    /// Phase 7 accepts only `client_auth: none`; `mtls`/`token` are rejected
-    /// rather than silently downgraded to an unauthenticated listener (D-05).
+    /// This returns a secret. Callers must not log the result. A missing or
+    /// unreadable source yields `None`, which `validate_tls` turns into a
+    /// configuration error for `token` mode.
+    pub fn tls_token(&self) -> Option<String> {
+        if let Some(value) = env_non_empty(Self::TLS_TOKEN_ENV) {
+            return Some(value);
+        }
+        let path = env_non_empty(Self::TLS_TOKEN_FILE_ENV)
+            .or_else(|| self.tls.as_ref().and_then(|t| t.token_file.clone()))
+            .filter(|value| !value.trim().is_empty())?;
+        let token = std::fs::read_to_string(path).ok()?;
+        let token = token.trim().to_string();
+        if token.is_empty() {
+            None
+        } else {
+            Some(token)
+        }
+    }
+
+    /// Validate the TLS and client-authentication block before any listener is
+    /// created.
+    ///
+    /// Unknown modes are errors, never a silent fallback to `none` (D-02).
     pub fn validate_tls(&self) -> Result<(), String> {
         match (self.tls_cert_path(), self.tls_key_path()) {
             (None, None) | (Some(_), Some(_)) => {}
             _ => return Err("tls: both cert_file and key_file are required".to_string()),
         }
-        let mode = self.tls_client_auth();
-        if mode != "none" {
-            return Err(format!(
-                "tls: client_auth '{}' is not supported yet (use 'none'; mtls/token arrive in phase 8)",
-                mode
-            ));
+        match self.tls_client_auth().as_str() {
+            "none" => {}
+            "mtls" => {
+                if self.tls_cert_path().is_none() {
+                    return Err(
+                        "tls: client_auth 'mtls' requires cert_file and key_file".to_string()
+                    );
+                }
+                if self.tls_client_ca_path().is_none() {
+                    return Err("tls: client_auth 'mtls' requires client_ca_file".to_string());
+                }
+            }
+            "token" => {
+                if self.tls_token().is_none() {
+                    return Err(
+                        "tls: client_auth 'token' requires SKF_TLS_TOKEN or token_file".to_string(),
+                    );
+                }
+            }
+            other => {
+                return Err(format!(
+                    "tls: unknown client_auth '{}' (expected none, mtls or token)",
+                    other
+                ));
+            }
         }
         Ok(())
     }
@@ -534,15 +593,77 @@ mod tests {
     }
 
     #[test]
-    fn client_auth_other_than_none_is_rejected() {
+    fn mtls_without_client_ca_is_rejected() {
         let _guard = env_lock();
         clear_tls_env();
         let yaml = "default: GM3000\nvendor: {}\ntls:\n  cert_file: c.crt\n  key_file: c.key\n  client_auth: mtls\nGM3000:\n  macos: native/x.dylib\n";
         let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
-        let error = config
-            .validate_tls()
-            .expect_err("mtls is not implemented yet");
-        assert!(error.contains("not supported yet"), "got: {error}");
+        let error = config.validate_tls().expect_err("mtls needs a client CA");
+        assert!(error.contains("client_ca_file"), "got: {error}");
+    }
+
+    #[test]
+    fn mtls_with_ca_and_server_cert_is_accepted() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let yaml = "default: GM3000\nvendor: {}\ntls:\n  cert_file: c.crt\n  key_file: c.key\n  client_ca_file: ca.crt\n  client_auth: mtls\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        assert!(config.validate_tls().is_ok());
+        assert_eq!(config.tls_client_ca_path().as_deref(), Some("ca.crt"));
+    }
+
+    #[test]
+    fn token_without_source_is_rejected() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let yaml = "default: GM3000\nvendor: {}\ntls:\n  client_auth: token\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        let error = config.validate_tls().expect_err("token needs a source");
+        assert!(error.contains("SKF_TLS_TOKEN"), "got: {error}");
+    }
+
+    #[test]
+    fn token_from_token_file_is_accepted() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let token_path =
+            std::env::temp_dir().join(format!("skf-config-token-{}.txt", std::process::id()));
+        std::fs::write(&token_path, "file-token\n").expect("write token");
+        let yaml = format!(
+            "default: GM3000\nvendor: {{}}\ntls:\n  client_auth: token\n  token_file: {}\nGM3000:\n  macos: native/x.dylib\n",
+            token_path.display()
+        );
+        let config: SkfConfig = serde_yaml::from_str(&yaml).expect("parse");
+        assert_eq!(config.tls_token().as_deref(), Some("file-token"));
+        assert!(config.validate_tls().is_ok());
+        let _ = std::fs::remove_file(&token_path);
+    }
+
+    #[test]
+    fn unknown_client_auth_is_rejected() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let yaml = "default: GM3000\nvendor: {}\ntls:\n  client_auth: jwt\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        let error = config.validate_tls().expect_err("unknown mode must fail");
+        assert!(error.contains("unknown client_auth"), "got: {error}");
+    }
+
+    #[test]
+    fn token_value_is_not_in_the_error_message() {
+        let _guard = env_lock();
+        clear_tls_env();
+        std::env::set_var(SkfConfig::TLS_TOKEN_ENV, "super-secret-token");
+        // Half-configured TLS, so validation fails for an unrelated reason; the
+        // token value must not appear anywhere in that message.
+        let yaml = "default: GM3000\nvendor: {}\ntls:\n  cert_file: c.crt\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        let error = config.validate_tls().expect_err("half config must fail");
+        assert!(
+            !error.contains("super-secret-token"),
+            "token leaked: {error}"
+        );
+        clear_tls_env();
     }
 
     #[test]
@@ -567,31 +688,34 @@ mod tests {
                 .expect("parse");
         assert!(config.tls_cert_path().is_none());
         assert!(config.tls_key_path().is_none());
+        assert!(config.tls_client_ca_path().is_none());
+        assert!(config.tls_token().is_none());
         assert_eq!(config.tls_client_auth(), "none");
 
         std::env::set_var(SkfConfig::TLS_CERT_ENV, "/tmp/env.crt");
         std::env::set_var(SkfConfig::TLS_KEY_ENV, "/tmp/env.key");
         std::env::set_var(SkfConfig::TLS_CLIENT_AUTH_ENV, "NONE");
+        std::env::set_var(SkfConfig::TLS_CLIENT_CA_ENV, "/tmp/ca.crt");
+        std::env::set_var(SkfConfig::TLS_TOKEN_ENV, "env-token");
         assert_eq!(config.tls_cert_path().as_deref(), Some("/tmp/env.crt"));
         assert_eq!(config.tls_key_path().as_deref(), Some("/tmp/env.key"));
+        assert_eq!(config.tls_client_ca_path().as_deref(), Some("/tmp/ca.crt"));
+        assert_eq!(config.tls_token().as_deref(), Some("env-token"));
         assert_eq!(config.tls_client_auth(), "none");
         assert!(config.validate_tls().is_ok());
 
-        for key in [
-            SkfConfig::TLS_CERT_ENV,
-            SkfConfig::TLS_KEY_ENV,
-            SkfConfig::TLS_CLIENT_AUTH_ENV,
-        ] {
-            std::env::remove_var(key);
-        }
+        clear_tls_env();
     }
 
-    /// Clear the Phase 7 TLS environment overrides.
+    /// Clear the Phase 7/8 TLS environment overrides.
     fn clear_tls_env() {
         for key in [
             SkfConfig::TLS_CERT_ENV,
             SkfConfig::TLS_KEY_ENV,
             SkfConfig::TLS_CLIENT_AUTH_ENV,
+            SkfConfig::TLS_CLIENT_CA_ENV,
+            SkfConfig::TLS_TOKEN_ENV,
+            SkfConfig::TLS_TOKEN_FILE_ENV,
         ] {
             std::env::remove_var(key);
         }

@@ -20,6 +20,7 @@
 //! the JSON-RPC dispatcher and its 37 method branches (Phase 2, decisions
 //! D-06/D-07/D-08), and the Windows SCM module (migrated in Phase 1 plan 01-04).
 
+pub mod client_auth;
 pub mod config;
 pub mod crypto;
 pub mod diagnostic;

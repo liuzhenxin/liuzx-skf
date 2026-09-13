@@ -194,18 +194,28 @@ struct JsonRpcSession {
     /// Owns this connection's authorization and native resources. Dropping it
     /// deregisters the session and releases everything it holds.
     guard: SessionGuard,
+    /// How this connection authenticated (AUTH-04). Non-secret: a token is the
+    /// `Token` variant, never its value.
+    #[allow(dead_code)]
+    identity: skf_service::client_auth::ClientIdentity,
     /// Session authorization lifetime, used to rebuild an empty state if a
     /// blocking dispatch task fails.
     ttl: std::time::Duration,
 }
 
 impl JsonRpcSession {
-    fn new(ctx: Arc<SkfContext>, guard: SessionGuard, ttl: std::time::Duration) -> Self {
+    fn new(
+        ctx: Arc<SkfContext>,
+        guard: SessionGuard,
+        ttl: std::time::Duration,
+        identity: skf_service::client_auth::ClientIdentity,
+    ) -> Self {
         Self {
             ctx,
             // The pre-refactor server defaulted every connection to English.
             lang: Language::EN,
             guard,
+            identity,
             ttl,
         }
     }
@@ -301,9 +311,19 @@ struct JsonRpcSessionFactory {
 }
 
 impl skf_service::server::SessionFactory for JsonRpcSessionFactory {
-    fn create(&self) -> Box<dyn skf_service::server::Session> {
+    fn create(
+        &self,
+        identity: skf_service::client_auth::ClientIdentity,
+    ) -> Box<dyn skf_service::server::Session> {
+        // Log the non-sensitive class only: never the token or certificate.
+        log::info!("session identity: {}", identity.class());
         let guard = SessionGuard::create(&self.registry, SessionState::new(self.ttl));
-        Box::new(JsonRpcSession::new(Arc::clone(&self.ctx), guard, self.ttl))
+        Box::new(JsonRpcSession::new(
+            Arc::clone(&self.ctx),
+            guard,
+            self.ttl,
+            identity,
+        ))
     }
 }
 

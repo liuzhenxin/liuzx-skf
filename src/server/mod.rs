@@ -207,6 +207,10 @@ pub struct PreparedServer {
     pub provider: Arc<dyn SkfProvider>,
     /// Server TLS acceptor, or `None` when the listener is plaintext.
     pub tls: Option<tokio_rustls::TlsAcceptor>,
+    /// How clients are authenticated (Phase 8).
+    pub client_auth: crate::client_auth::ClientAuthMode,
+    /// Expected bearer-token bytes; `None` unless the mode is `token`. A secret.
+    pub token: Option<Arc<[u8]>>,
 }
 
 /// Read and parse the PEM certificate chain and private key.
@@ -240,8 +244,13 @@ fn load_tls_material(
 ///
 /// `Ok(None)` means TLS is disabled. Any failure is a fatal configuration error:
 /// the service must never fall back to plaintext when TLS was requested
-/// (CONTEXT D-04..D-06).
-fn build_tls_acceptor(config: &SkfConfig) -> Result<Option<tokio_rustls::TlsAcceptor>, String> {
+/// (CONTEXT D-04..D-06). `mode` chooses the client-certificate verifier: `mtls`
+/// installs a `WebPkiClientVerifier` over the configured CA, everything else
+/// disables client certificates (AUTH-01).
+fn build_tls_acceptor(
+    config: &SkfConfig,
+    mode: crate::client_auth::ClientAuthMode,
+) -> Result<Option<tokio_rustls::TlsAcceptor>, String> {
     config.validate_tls()?;
     let (cert_path, key_path) = match (config.tls_cert_path(), config.tls_key_path()) {
         (Some(cert), Some(key)) => (cert, key),
@@ -252,16 +261,49 @@ fn build_tls_acceptor(config: &SkfConfig) -> Result<Option<tokio_rustls::TlsAcce
     // Pin the `ring` provider explicitly: the crate-feature default
     // (`aws-lc-rs`) breaks the i686-pc-windows-gnu cross-build (research STACK.md).
     let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
-    let tls_config = rustls::ServerConfig::builder_with_provider(provider)
+    let builder = rustls::ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .map_err(|_| "TLS configuration error".to_string())?
-        .with_no_client_auth()
+        .map_err(|_| "TLS configuration error".to_string())?;
+
+    let builder = if mode == crate::client_auth::ClientAuthMode::Mtls {
+        let ca_path = config
+            .tls_client_ca_path()
+            .ok_or_else(|| "tls: client_auth 'mtls' requires client_ca_file".to_string())?;
+        let roots = load_client_ca(&ca_path)?;
+        let verifier = rustls::server::WebPkiClientVerifier::builder(std::sync::Arc::new(roots))
+            .build()
+            .map_err(|_| "TLS client CA could not be used".to_string())?;
+        builder.with_client_cert_verifier(verifier)
+    } else {
+        builder.with_no_client_auth()
+    };
+
+    let tls_config = builder
         .with_single_cert(certs, key)
         .map_err(|_| "TLS certificate and private key could not be used together".to_string())?;
 
     Ok(Some(tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(
         tls_config,
     ))))
+}
+
+/// Load a PEM CA bundle into a rustls root store for client verification.
+fn load_client_ca(ca_path: &str) -> Result<rustls::RootCertStore, String> {
+    let file =
+        std::fs::File::open(ca_path).map_err(|_| "TLS client CA could not be read".to_string())?;
+    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut BufReader::new(file))
+        .collect::<Result<_, _>>()
+        .map_err(|_| "TLS client CA could not be parsed".to_string())?;
+    if certs.is_empty() {
+        return Err("TLS client CA file contained no certificate".to_string());
+    }
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in certs {
+        roots
+            .add(cert)
+            .map_err(|_| "TLS client CA could not be used".to_string())?;
+    }
+    Ok(roots)
 }
 
 /// Whether the configured certificate and key can both be loaded.
@@ -286,12 +328,13 @@ pub trait Session: Send {
 
 /// Creates a [`Session`] for each accepted connection.
 pub trait SessionFactory: Send + Sync + 'static {
-    fn create(&self) -> Box<dyn Session>;
+    /// Create a session for a connection that proved `identity` (AUTH-04).
+    fn create(&self, identity: crate::client_auth::ClientIdentity) -> Box<dyn Session>;
 }
 
 impl SessionFactory for Box<dyn SessionFactory> {
-    fn create(&self) -> Box<dyn Session> {
-        (**self).create()
+    fn create(&self, identity: crate::client_auth::ClientIdentity) -> Box<dyn Session> {
+        (**self).create(identity)
     }
 }
 
@@ -395,10 +438,26 @@ where
     on_stage(StartupStage::Config);
     let config =
         crate::config::load(&opts.config_path).map_err(|e| StartupError::Config(e.to_string()))?;
+    // The client-auth mode is part of configuration validation; an unknown value
+    // is fatal rather than a silent fallback to `none` (AUTH/D-02).
+    let client_auth = crate::client_auth::ClientAuthMode::parse(&config.tls_client_auth())
+        .map_err(StartupError::Config)?;
     // A bad or half-configured TLS block is a configuration error before any
     // listener exists; there is no plaintext fallback (D-04..D-06).
-    let tls = build_tls_acceptor(&config).map_err(StartupError::Config)?;
-    log::info!("tls={}", if tls.is_some() { "enabled" } else { "disabled" });
+    let tls = build_tls_acceptor(&config, client_auth).map_err(StartupError::Config)?;
+    // The token is a secret: hold it as bytes and never log it.
+    let token = if client_auth == crate::client_auth::ClientAuthMode::Token {
+        config
+            .tls_token()
+            .map(|value| Arc::<[u8]>::from(value.into_bytes()))
+    } else {
+        None
+    };
+    log::info!(
+        "tls={} client_auth={}",
+        if tls.is_some() { "enabled" } else { "disabled" },
+        client_auth.label()
+    );
 
     on_stage(StartupStage::Provider);
     // Fatal only when the default provider has no path for this OS. The file may
@@ -425,6 +484,14 @@ where
             ws_socket
         )));
     }
+    // A non-loopback listener must authenticate its clients: `none` is only
+    // acceptable on loopback (AUTH-03). Phase 9 additionally requires TLS.
+    if !ws_socket.ip().is_loopback() && client_auth.requires_loopback() {
+        return Err(StartupError::Bind(format!(
+            "refusing to bind WebSocket listener to non-loopback address {} without client authentication; set tls.client_auth to mtls or token",
+            ws_socket
+        )));
+    }
 
     let listener = TcpListener::bind(ws_socket).await.map_err(|e| {
         StartupError::Bind(format!(
@@ -447,6 +514,8 @@ where
             config,
             provider,
             tls,
+            client_auth,
+            token,
         },
     ))
 }
@@ -511,6 +580,8 @@ where
     // caller; `serve` only needs it to keep it alive for the process lifetime.
     let _keep_provider = Arc::clone(&prepared.provider);
     let tls = prepared.tls.clone();
+    let client_auth = prepared.client_auth;
+    let token = prepared.token.clone();
     let sessions = Arc::new(sessions);
     let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
 
@@ -527,7 +598,15 @@ where
                 accepted = listener.accept() => {
                     match accepted {
                         Ok((stream, peer)) => {
-                            admit(Arc::clone(&sessions), Arc::clone(&permits), tls.clone(), stream, peer)
+                            admit(
+                                Arc::clone(&sessions),
+                                Arc::clone(&permits),
+                                tls.clone(),
+                                client_auth,
+                                token.clone(),
+                                stream,
+                                peer,
+                            )
                         }
                         Err(e) => {
                             log::error!("WebSocket accept error: {}", e);
@@ -543,6 +622,8 @@ where
                     Arc::clone(&sessions),
                     Arc::clone(&permits),
                     tls.clone(),
+                    client_auth,
+                    token.clone(),
                     stream,
                     peer,
                 );
@@ -562,6 +643,8 @@ fn admit<S>(
     sessions: Arc<S>,
     permits: Arc<tokio::sync::Semaphore>,
     tls: Option<tokio_rustls::TlsAcceptor>,
+    client_auth: crate::client_auth::ClientAuthMode,
+    token: Option<Arc<[u8]>>,
     stream: tokio::net::TcpStream,
     peer: std::net::SocketAddr,
 ) where
@@ -572,14 +655,43 @@ fn admit<S>(
             tokio::spawn(async move {
                 match tls {
                     Some(acceptor) => match acceptor.accept(stream).await {
-                        Ok(tls_stream) => run_connection(sessions, tls_stream, permit).await,
+                        Ok(tls_stream) => {
+                            // The client certificate was verified during the
+                            // handshake; keep only its non-secret CN.
+                            let identity =
+                                if client_auth == crate::client_auth::ClientAuthMode::Mtls {
+                                    identity_from_tls(&tls_stream)
+                                } else {
+                                    crate::client_auth::ClientIdentity::Anonymous
+                                };
+                            run_connection(
+                                sessions,
+                                tls_stream,
+                                permit,
+                                client_auth,
+                                token,
+                                identity,
+                            )
+                            .await;
+                        }
                         Err(error) => {
-                            // A failed handshake drops the connection and the permit
+                            // A failed handshake (including a rejected client
+                            // certificate) drops the connection and the permit
                             // with it; the accept loop keeps running (D-12).
                             log::warn!("tls handshake failed: {}", tls_error_class(&error));
                         }
                     },
-                    None => run_connection(sessions, stream, permit).await,
+                    None => {
+                        run_connection(
+                            sessions,
+                            stream,
+                            permit,
+                            client_auth,
+                            token,
+                            crate::client_auth::ClientIdentity::Anonymous,
+                        )
+                        .await;
+                    }
                 }
             });
         }
@@ -589,6 +701,36 @@ fn admit<S>(
             peer
         ),
     }
+}
+
+/// Extract the subject CN from the peer's verified leaf certificate.
+///
+/// Returns `Anonymous` when no certificate is present. The certificate bytes
+/// are never retained or logged; only the CN string is kept for audit (AUTH-04).
+fn identity_from_tls(
+    stream: &tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+) -> crate::client_auth::ClientIdentity {
+    let certs = stream.get_ref().1.peer_certificates();
+    let Some(certs) = certs else {
+        return crate::client_auth::ClientIdentity::Anonymous;
+    };
+    let subject_cn = certs
+        .first()
+        .and_then(|leaf| subject_cn_from_der(leaf.as_ref()));
+    crate::client_auth::ClientIdentity::Certificate { subject_cn }
+}
+
+/// Extract the subject common name from a DER certificate, if present.
+fn subject_cn_from_der(der: &[u8]) -> Option<String> {
+    x509_parser::parse_x509_certificate(der)
+        .ok()
+        .and_then(|(_, cert)| {
+            cert.subject()
+                .iter_common_name()
+                .next()
+                .and_then(|cn| cn.as_str().ok())
+                .map(|cn| cn.to_string())
+        })
 }
 
 /// Map a TLS handshake I/O error to a non-sensitive class name for logging.
@@ -642,6 +784,9 @@ async fn run_connection<S, T>(
     sessions: Arc<S>,
     stream: T,
     _permit: tokio::sync::OwnedSemaphorePermit,
+    client_auth: crate::client_auth::ClientAuthMode,
+    token: Option<Arc<[u8]>>,
+    identity: crate::client_auth::ClientIdentity,
 ) where
     S: SessionFactory,
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -653,14 +798,56 @@ async fn run_connection<S, T>(
         max_frame_size: Some(MAX_WS_MESSAGE_BYTES),
         ..Default::default()
     };
-    let mut ws = match tokio_tungstenite::accept_async_with_config(stream, Some(ws_config)).await {
+    // The upgrade callback enforces the bearer token *before* the connection is
+    // established, so an unauthenticated client never reaches the session
+    // factory (AUTH-02).
+    let expected_token = token;
+    let mut ws = match tokio_tungstenite::accept_hdr_async_with_config(
+        stream,
+        move |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+              response: tokio_tungstenite::tungstenite::handshake::server::Response|
+              -> Result<
+            tokio_tungstenite::tungstenite::handshake::server::Response,
+            tokio_tungstenite::tungstenite::handshake::server::ErrorResponse,
+        > {
+            if client_auth == crate::client_auth::ClientAuthMode::Token {
+                let presented = request
+                    .headers()
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default();
+                let accepted = expected_token
+                    .as_deref()
+                    .map(|expected| {
+                        crate::client_auth::ClientIdentity::token_matches(expected, presented)
+                    })
+                    .unwrap_or(false);
+                if !accepted {
+                    return Err(tokio_tungstenite::tungstenite::http::Response::builder()
+                        .status(tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED)
+                        .body(None)
+                        .expect("static error response"));
+                }
+            }
+            Ok(response)
+        },
+        Some(ws_config),
+    )
+    .await
+    {
         Ok(ws) => ws,
         Err(e) => {
             log::debug!("websocket upgrade failed: {}", e);
             return;
         }
     };
-    let mut session = sessions.create();
+    // A successful token check means the session is token-authenticated.
+    let identity = if client_auth == crate::client_auth::ClientAuthMode::Token {
+        crate::client_auth::ClientIdentity::Token
+    } else {
+        identity
+    };
+    let mut session = sessions.create(identity);
     while let Some(msg) = ws.next().await {
         match msg {
             Ok(msg) if msg.is_text() => {
@@ -832,6 +1019,126 @@ mod tests {
             result.is_ok(),
             "a missing library file must degrade, not fail startup: {:?}",
             result.err()
+        );
+    }
+
+    // ---- Phase 8: client authentication ----
+
+    use crate::client_auth::ClientAuthMode;
+
+    /// Clear the TLS/client-auth environment overrides for the duration of a test.
+    fn clear_auth_env() {
+        for key in [
+            SkfConfig::TLS_CERT_ENV,
+            SkfConfig::TLS_KEY_ENV,
+            SkfConfig::TLS_CLIENT_AUTH_ENV,
+            SkfConfig::TLS_CLIENT_CA_ENV,
+            SkfConfig::TLS_TOKEN_ENV,
+            SkfConfig::TLS_TOKEN_FILE_ENV,
+        ] {
+            std::env::remove_var(key);
+        }
+    }
+
+    fn auth_dir(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("skf-server-auth-{}-{}", std::process::id(), name));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    /// Write a self-signed server certificate and key; returns their paths.
+    fn write_server_material(dir: &std::path::Path) -> (String, String) {
+        let rcgen::CertifiedKey { cert, signing_key } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+        let cert_path = dir.join("server.crt");
+        let key_path = dir.join("server.key");
+        std::fs::write(&cert_path, cert.pem()).expect("write cert");
+        std::fs::write(&key_path, signing_key.serialize_pem()).expect("write key");
+        (
+            cert_path.to_string_lossy().into_owned(),
+            key_path.to_string_lossy().into_owned(),
+        )
+    }
+
+    /// Write a self-signed CA certificate; returns its path.
+    fn write_ca(dir: &std::path::Path) -> String {
+        use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
+        let key = KeyPair::generate().expect("ca key");
+        let mut params = CertificateParams::new(Vec::<String>::new()).expect("params");
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        let cert = params.self_signed(&key).expect("ca cert");
+        let path = dir.join("ca.crt");
+        std::fs::write(&path, cert.pem()).expect("write ca");
+        path.to_string_lossy().into_owned()
+    }
+
+    fn auth_config(cert: &str, key: &str, extra: &str) -> SkfConfig {
+        let yaml = format!(
+            "default: GM3000\nvendor: {{}}\ntls:\n  cert_file: {}\n  key_file: {}\n{}GM3000:\n  win: x\n",
+            cert, key, extra
+        );
+        serde_yaml::from_str(&yaml).expect("parse auth config")
+    }
+
+    #[test]
+    fn mtls_mode_without_ca_is_a_config_error() {
+        let _guard = crate::test_env::lock();
+        clear_auth_env();
+        let dir = auth_dir("mtls-no-ca");
+        let (cert, key) = write_server_material(&dir);
+        let config = auth_config(&cert, &key, "  client_auth: mtls\n");
+        let error = match build_tls_acceptor(&config, ClientAuthMode::Mtls) {
+            Err(error) => error,
+            Ok(_) => panic!("mtls without a CA must fail"),
+        };
+        assert!(error.contains("client_ca_file"), "got: {error}");
+    }
+
+    #[test]
+    fn mtls_mode_builds_a_client_verifier() {
+        let _guard = crate::test_env::lock();
+        clear_auth_env();
+        let dir = auth_dir("mtls-ok");
+        let (cert, key) = write_server_material(&dir);
+        let ca = write_ca(&dir);
+        let config = auth_config(
+            &cert,
+            &key,
+            &format!("  client_auth: mtls\n  client_ca_file: {}\n", ca),
+        );
+        assert!(build_tls_acceptor(&config, ClientAuthMode::Mtls)
+            .expect("valid mtls material")
+            .is_some());
+    }
+
+    #[test]
+    fn token_mode_without_tls_yields_no_acceptor() {
+        let _guard = crate::test_env::lock();
+        clear_auth_env();
+        std::env::set_var(SkfConfig::TLS_TOKEN_ENV, "secret");
+        let config: SkfConfig = serde_yaml::from_str(
+            "default: GM3000\nvendor: {}\ntls:\n  client_auth: token\nGM3000:\n  win: x\n",
+        )
+        .expect("parse");
+        assert!(build_tls_acceptor(&config, ClientAuthMode::Token)
+            .expect("token mode")
+            .is_none());
+        clear_auth_env();
+    }
+
+    #[test]
+    fn subject_cn_is_extracted_from_a_certificate() {
+        use rcgen::{CertificateParams, KeyPair};
+        let key = KeyPair::generate().expect("key");
+        let mut params = CertificateParams::new(Vec::<String>::new()).expect("params");
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "test-client");
+        let cert = params.self_signed(&key).expect("cert");
+        assert_eq!(
+            subject_cn_from_der(cert.der()).as_deref(),
+            Some("test-client")
         );
     }
 }
