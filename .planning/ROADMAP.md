@@ -86,7 +86,12 @@ Plans:
   1. `THREAT-MODEL.md`, `docs/SESSION-AND-LIMITS.md`, `RELEASE-NOTES.md`, and `docs/WINDOWS-SERVICE.md` describe TLS, client authentication, the tightened bind policy, and how to migrate.
   2. Nyquist sign-off for phases 3-6 is recorded, and the Linux CI fast-job test list includes the phase 5/6 suites.
   3. TLS/auth tests run with hermetic certificates (no token) and the i686 cross-compile stays green.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 10-01: Document TLS, client authentication, and the bind policy
+- [ ] 10-02: CI fast-job coverage and Nyquist sign-off
+- [ ] 10-03: Hermetic proof and milestone-level regression
 
 ## Progress
 
