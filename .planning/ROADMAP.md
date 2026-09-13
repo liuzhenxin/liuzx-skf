@@ -24,7 +24,7 @@ device-removal grant clearing.
 
 ### 🚧 v0.4.0 Secure Remote Operation (In Progress)
 
-- [ ] Phase 7: TLS Termination (TLS-01..04, COMPAT-01)
+- [x] Phase 7: TLS Termination (TLS-01..04, COMPAT-01) — 2/2 plans
 - [ ] Phase 8: Client Authentication (AUTH-01..04)
 - [ ] Phase 9: Bind Policy and Authorization Audit (BIND-01..03, AUD-01..02)
 - [ ] Phase 10: Documentation and Quality Closeout (COMPAT-02, QA-01, QA-02)
@@ -43,8 +43,8 @@ device-removal grant clearing.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: Optional TLS termination for the WebSocket listener
-- [ ] 07-02: Secret safety and diagnostics for TLS
+- [x] 07-01: Optional TLS termination for the WebSocket listener
+- [x] 07-02: Secret safety and diagnostics for TLS
 
 ### Phase 8: Client Authentication
 **Goal**: 未认证连接不能调用任何方法；支持 mTLS 客户端证书与 bearer 令牌两种模式。
@@ -83,7 +83,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-6 | v0.3.0 | 20/20 | Complete | 2026-09-12 |
-| 7. TLS Termination | v0.4.0 | 0/0 | Not started | - |
+| 7. TLS Termination | v0.4.0 | 2/2 | Complete | 2026-09-12 |
 | 8. Client Authentication | v0.4.0 | 0/0 | Not started | - |
 | 9. Bind Policy and Audit | v0.4.0 | 0/0 | Not started | - |
 | 10. Docs and Quality | v0.4.0 | 0/0 | Not started | - |

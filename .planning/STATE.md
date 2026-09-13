@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Secure Remote Operation
-status: Ready to execute
-stopped_at: Phase 7 context gathered
+status: Phase 7 complete
+stopped_at: Phase 7 executed; TLS termination implemented and verified (contract fixtures hardware-blocked)
 last_updated: "2026-09-13T11:07:19.325Z"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 25
 ---
 
 # Project State
@@ -24,11 +24,12 @@ See: .planning/PROJECT.md (updated 2026-09-12)
 
 ## Current Position
 
-Milestone: v0.4.0 Secure Remote Operation — DEFINING REQUIREMENTS
-Next action: finalize REQUIREMENTS.md and ROADMAP.md, then `$gsd-discuss-phase 7`
-Last Activity Description: Phase 7 planning complete — 2 plans ready
+Milestone: v0.4.0 Secure Remote Operation — IN PROGRESS
+Phase: 7 (TLS Termination) — COMPLETE
+Next action: `$gsd-plan-phase 8` (Client Authentication); optional `$gsd-verify-work` for phase 7
+Last Activity Description: Phase 7 executed — optional server-side TLS, secret safety, hermetic tests
 
-Progress: [░░░░░░░░░░] 0%  (0/0 phases)
+Progress: [███░░░░░░░] 25%  (1/4 phases)
 
 ## Accumulated Context
 
@@ -53,6 +54,7 @@ None.
 - TLS/client-auth crate availability: the local cargo registry needed a sparse mirror; `~/.cargo/config.toml` was switched to `sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/` (backup at `~/.cargo/config.toml.bak`). CI fetches from crates.io normally.
 - Vendor DLL thread safety remains unproven; per-device concurrency stays deferred.
 - The HTTP demo can still bind non-loopback in console mode (documented boundary).
+- [Phase 7] The 37-fixture contract replay cannot run on the Mac while the GM3000 token is attached to the Windows VM (`ConnectDev` returns 0x00000001 instead of the recorded 0x0A000023). Re-run with the token on the Mac before the v0.4.0 audit.
 - `IssueCertificate` remains a Mock (real CA integration deferred).
 
 ## Deferred Items
@@ -68,6 +70,6 @@ Carried into the v0.4.0 backlog (not in this milestone): per-device concurrency/
 
 ## Session Continuity
 
-Last session: 2026-09-13T11:03:40.942Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-tls-termination/07-CONTEXT.md
+Last session: 2026-09-13T11:20:00.000Z
+Stopped at: Phase 7 executed and verified
+Resume file: .planning/phases/07-tls-termination/07-VERIFICATION.md
