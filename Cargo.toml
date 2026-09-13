@@ -25,6 +25,10 @@ x509-parser = "0.15"
 warp = "0.3"
 smcrypto = "0.3"
 rand = "0.8"
+rustls = { version = "0.23.44", default-features = false, features = ["std", "ring", "logging", "tls12"] }
+tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring", "logging", "tls12"] }
+rustls-pemfile = "2.2.0"
+rustls-pki-types = "1.15.1"
 
 # Windows Service (SCM) integration. Only built on Windows targets.
 [target.'cfg(windows)'.dependencies]
@@ -33,6 +37,7 @@ windows-service = "0.7"
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [dev-dependencies]
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 # Integration tests live in their own crates, so `cfg(test)` does not reach them.
 # Depending on ourselves with the feature enabled is the supported way to give
 # tests access to the fake provider without shipping it.

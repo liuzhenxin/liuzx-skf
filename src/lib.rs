@@ -32,5 +32,8 @@ pub mod service_state;
 pub mod session;
 pub mod skf;
 
+#[cfg(test)]
+pub(crate) mod test_env;
+
 #[cfg(windows)]
 pub mod win_service;

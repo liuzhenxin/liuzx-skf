@@ -28,6 +28,13 @@ pub struct DiagnosticReport {
     pub listener_bound: bool,
     pub listener_bindable: bool,
     pub ws_addr: String,
+    /// Whether a TLS certificate and key are configured (Phase 7).
+    pub tls_enabled: bool,
+    /// Whether the configured TLS certificate and key can be loaded.
+    ///
+    /// A boolean only: the report never contains the configured paths or any
+    /// key material (TLS-04).
+    pub tls_cert_loaded: bool,
     pub state: Option<String>,
     pub stage: Option<String>,
     pub code: Option<u32>,
@@ -73,6 +80,8 @@ pub fn run(config_path: &str, ws_addr: &str, state_file: Option<&Path>) -> Diagn
         listener_bound: false,
         listener_bindable: listener_bindable(ws_addr),
         ws_addr: ws_addr.to_string(),
+        tls_enabled: false,
+        tls_cert_loaded: false,
         state: None,
         stage: None,
         code: None,
@@ -92,6 +101,10 @@ pub fn run(config_path: &str, ws_addr: &str, state_file: Option<&Path>) -> Diagn
     };
 
     report.provider_alias = config.default.clone();
+    // TLS presence/load as booleans only; the paths and any key material stay out
+    // of the report (TLS-04).
+    report.tls_enabled = config.tls_cert_path().is_some() && config.tls_key_path().is_some();
+    report.tls_cert_loaded = crate::server::tls_cert_loads(&config);
     let resolved = match crate::config::resolve_lib_path(
         &config.libs,
         &config.default,
@@ -176,6 +189,8 @@ pub fn render_text(report: &DiagnosticReport) -> String {
         report.listener_bindable
     ));
     out.push_str(&format!("ws_addr:            {}\n", report.ws_addr));
+    out.push_str(&format!("tls_enabled:        {}\n", report.tls_enabled));
+    out.push_str(&format!("tls_cert_loaded:    {}\n", report.tls_cert_loaded));
     if let Some(state) = &report.state {
         out.push_str(&format!("state:              {}\n", state));
     }
@@ -213,6 +228,20 @@ mod tests {
         path
     }
 
+    /// Hold the shared env lock and clear the Phase 7 TLS overrides so this
+    /// module's assertions cannot observe another test's environment.
+    fn tls_env_guard() -> std::sync::MutexGuard<'static, ()> {
+        let guard = crate::test_env::lock();
+        for key in [
+            crate::config::SkfConfig::TLS_CERT_ENV,
+            crate::config::SkfConfig::TLS_KEY_ENV,
+            crate::config::SkfConfig::TLS_CLIENT_AUTH_ENV,
+        ] {
+            std::env::remove_var(key);
+        }
+        guard
+    }
+
     #[test]
     fn missing_config_reports_not_loaded() {
         let report = run("/definitely/not/a/config.yaml", "127.0.0.1:9001", None);
@@ -238,6 +267,61 @@ mod tests {
         // The file does not exist, so presence is false and load is false.
         assert!(!report.library_file_present);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn diagnose_without_tls_reports_disabled() {
+        let _guard = tls_env_guard();
+        let path = temp_config(
+            "no-tls",
+            &format!(
+                "default: GM3000\nvendor: {{}}\nGM3000:\n  {}: native/missing-lib\n",
+                std::env::consts::OS
+            ),
+        );
+        let report = run(path.to_str().expect("path"), "127.0.0.1:9001", None);
+        assert!(!report.tls_enabled);
+        assert!(!report.tls_cert_loaded);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn diagnose_with_tls_reports_enabled_without_paths() {
+        let _guard = tls_env_guard();
+        let rcgen::CertifiedKey { cert, signing_key } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+        let cert_path =
+            std::env::temp_dir().join(format!("skf-diagnostic-cert-{}.pem", std::process::id()));
+        let key_path =
+            std::env::temp_dir().join(format!("skf-diagnostic-key-{}.pem", std::process::id()));
+        std::fs::write(&cert_path, cert.pem()).expect("write cert");
+        std::fs::write(&key_path, signing_key.serialize_pem()).expect("write key");
+
+        let yaml = format!(
+            "default: GM3000\nvendor: {{}}\ntls:\n  cert_file: {}\n  key_file: {}\nGM3000:\n  {}: native/missing-lib\n",
+            cert_path.display(),
+            key_path.display(),
+            std::env::consts::OS
+        );
+        let path = temp_config("with-tls", &yaml);
+        let report = run(path.to_str().expect("path"), "127.0.0.1:9001", None);
+        assert!(report.tls_enabled, "TLS block must be reported as enabled");
+        assert!(report.tls_cert_loaded, "generated cert must load");
+
+        let json = render_json(&report);
+        assert!(
+            !json.contains(&cert_path.to_string_lossy().to_string()),
+            "diagnostic leaked the certificate path"
+        );
+        assert!(
+            !json.contains(&key_path.to_string_lossy().to_string()),
+            "diagnostic leaked the private-key path"
+        );
+        assert!(!json.contains("BEGIN"), "diagnostic leaked PEM material");
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&cert_path);
+        let _ = std::fs::remove_file(&key_path);
     }
 
     #[test]

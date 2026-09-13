@@ -13,11 +13,13 @@
 //! `127.0.0.1:0` therefore produced an unconnectable test: the caller could not
 //! learn which port the OS had chosen.
 
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use futures_util::{SinkExt, StreamExt};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
 use tungstenite::protocol::WebSocketConfig;
 
@@ -203,6 +205,73 @@ impl SkfProvider for UnavailableProvider {
 pub struct PreparedServer {
     pub config: SkfConfig,
     pub provider: Arc<dyn SkfProvider>,
+    /// Server TLS acceptor, or `None` when the listener is plaintext.
+    pub tls: Option<tokio_rustls::TlsAcceptor>,
+}
+
+/// Read and parse the PEM certificate chain and private key.
+///
+/// Error strings name a class only: a log line or support transcript must never
+/// reveal the install layout or the key location (TLS-04).
+#[allow(clippy::type_complexity)]
+fn load_tls_material(
+    cert_path: &str,
+    key_path: &str,
+) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
+    let cert_file = std::fs::File::open(cert_path)
+        .map_err(|_| "TLS certificate could not be read".to_string())?;
+    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut BufReader::new(cert_file))
+        .collect::<Result<_, _>>()
+        .map_err(|_| "TLS certificate could not be parsed".to_string())?;
+    if certs.is_empty() {
+        return Err("TLS certificate file contained no certificate".to_string());
+    }
+
+    let key_file = std::fs::File::open(key_path)
+        .map_err(|_| "TLS private key could not be read".to_string())?;
+    let key = rustls_pemfile::private_key(&mut BufReader::new(key_file))
+        .map_err(|_| "TLS private key could not be parsed".to_string())?
+        .ok_or_else(|| "TLS private key was not found in the configured file".to_string())?;
+
+    Ok((certs, key))
+}
+
+/// Build the server TLS acceptor for the configured material.
+///
+/// `Ok(None)` means TLS is disabled. Any failure is a fatal configuration error:
+/// the service must never fall back to plaintext when TLS was requested
+/// (CONTEXT D-04..D-06).
+fn build_tls_acceptor(config: &SkfConfig) -> Result<Option<tokio_rustls::TlsAcceptor>, String> {
+    config.validate_tls()?;
+    let (cert_path, key_path) = match (config.tls_cert_path(), config.tls_key_path()) {
+        (Some(cert), Some(key)) => (cert, key),
+        _ => return Ok(None),
+    };
+    let (certs, key) = load_tls_material(&cert_path, &key_path)?;
+
+    // Pin the `ring` provider explicitly: the crate-feature default
+    // (`aws-lc-rs`) breaks the i686-pc-windows-gnu cross-build (research STACK.md).
+    let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+    let tls_config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|_| "TLS configuration error".to_string())?
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|_| "TLS certificate and private key could not be used together".to_string())?;
+
+    Ok(Some(tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(
+        tls_config,
+    ))))
+}
+
+/// Whether the configured certificate and key can both be loaded.
+///
+/// Exposed for `diagnose`, which reports the boolean without exposing the path.
+pub fn tls_cert_loads(config: &SkfConfig) -> bool {
+    match (config.tls_cert_path(), config.tls_key_path()) {
+        (Some(cert), Some(key)) => load_tls_material(&cert, &key).is_ok(),
+        _ => false,
+    }
 }
 
 /// One client connection.
@@ -326,6 +395,10 @@ where
     on_stage(StartupStage::Config);
     let config =
         crate::config::load(&opts.config_path).map_err(|e| StartupError::Config(e.to_string()))?;
+    // A bad or half-configured TLS block is a configuration error before any
+    // listener exists; there is no plaintext fallback (D-04..D-06).
+    let tls = build_tls_acceptor(&config).map_err(StartupError::Config)?;
+    log::info!("tls={}", if tls.is_some() { "enabled" } else { "disabled" });
 
     on_stage(StartupStage::Provider);
     // Fatal only when the default provider has no path for this OS. The file may
@@ -370,7 +443,11 @@ where
             http_addr,
         },
         listener,
-        PreparedServer { config, provider },
+        PreparedServer {
+            config,
+            provider,
+            tls,
+        },
     ))
 }
 
@@ -433,6 +510,7 @@ where
     // The provider is built by `bind` and handed to the session factory by the
     // caller; `serve` only needs it to keep it alive for the process lifetime.
     let _keep_provider = Arc::clone(&prepared.provider);
+    let tls = prepared.tls.clone();
     let sessions = Arc::new(sessions);
     let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
 
@@ -449,7 +527,7 @@ where
                 accepted = listener.accept() => {
                     match accepted {
                         Ok((stream, peer)) => {
-                            admit(Arc::clone(&sessions), Arc::clone(&permits), stream, peer)
+                            admit(Arc::clone(&sessions), Arc::clone(&permits), tls.clone(), stream, peer)
                         }
                         Err(e) => {
                             log::error!("WebSocket accept error: {}", e);
@@ -461,7 +539,13 @@ where
         },
         None => {
             while let Ok((stream, peer)) = listener.accept().await {
-                admit(Arc::clone(&sessions), Arc::clone(&permits), stream, peer);
+                admit(
+                    Arc::clone(&sessions),
+                    Arc::clone(&permits),
+                    tls.clone(),
+                    stream,
+                    peer,
+                );
             }
         }
     }
@@ -472,21 +556,51 @@ where
 ///
 /// Refusing means dropping the socket before the WebSocket handshake, so an
 /// over-limit client never reaches the session factory or the vendor library.
+/// The semaphore permit is acquired here and held across the (optional) TLS
+/// handshake, so a handshake flood cannot bypass `MAX_CONNECTIONS` (D-11).
 fn admit<S>(
     sessions: Arc<S>,
     permits: Arc<tokio::sync::Semaphore>,
+    tls: Option<tokio_rustls::TlsAcceptor>,
     stream: tokio::net::TcpStream,
     peer: std::net::SocketAddr,
 ) where
     S: SessionFactory,
 {
     match Arc::clone(&permits).try_acquire_owned() {
-        Ok(permit) => spawn_client(sessions, stream, permit),
+        Ok(permit) => {
+            tokio::spawn(async move {
+                match tls {
+                    Some(acceptor) => match acceptor.accept(stream).await {
+                        Ok(tls_stream) => run_connection(sessions, tls_stream, permit).await,
+                        Err(error) => {
+                            // A failed handshake drops the connection and the permit
+                            // with it; the accept loop keeps running (D-12).
+                            log::warn!("tls handshake failed: {}", tls_error_class(&error));
+                        }
+                    },
+                    None => run_connection(sessions, stream, permit).await,
+                }
+            });
+        }
         Err(_) => log::warn!(
             "connection limit {} reached; refusing {}",
             MAX_CONNECTIONS,
             peer
         ),
+    }
+}
+
+/// Map a TLS handshake I/O error to a non-sensitive class name for logging.
+fn tls_error_class(error: &std::io::Error) -> &'static str {
+    use std::io::ErrorKind;
+    match error.kind() {
+        ErrorKind::InvalidData => "invalid_data",
+        ErrorKind::UnexpectedEof => "unexpected_eof",
+        ErrorKind::ConnectionReset => "connection_reset",
+        ErrorKind::TimedOut => "timeout",
+        ErrorKind::WouldBlock => "would_block",
+        _ => "handshake_error",
     }
 }
 
@@ -522,55 +636,54 @@ where
 ///
 /// Transport concerns only: the frame is handed to the session, and the session's
 /// reply is written back. Failures are logged rather than propagated because one
-/// misbehaving client must not stop the accept loop.
-fn spawn_client<S>(
+/// misbehaving client must not stop the accept loop. Generic over the stream so a
+/// plaintext `TcpStream` and a `TlsStream<TcpStream>` share one code path (D-11).
+async fn run_connection<S, T>(
     sessions: Arc<S>,
-    stream: tokio::net::TcpStream,
+    stream: T,
     _permit: tokio::sync::OwnedSemaphorePermit,
 ) where
     S: SessionFactory,
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    tokio::spawn(async move {
-        // Held for the connection's lifetime; dropping it frees the slot.
-        let _keep = _permit;
-        let ws_config = WebSocketConfig {
-            max_message_size: Some(MAX_WS_MESSAGE_BYTES),
-            max_frame_size: Some(MAX_WS_MESSAGE_BYTES),
-            ..Default::default()
-        };
-        let mut ws =
-            match tokio_tungstenite::accept_async_with_config(stream, Some(ws_config)).await {
-                Ok(ws) => ws,
-                Err(e) => {
-                    log::debug!("websocket upgrade failed: {}", e);
-                    return;
-                }
-            };
-        let mut session = sessions.create();
-        while let Some(msg) = ws.next().await {
-            match msg {
-                Ok(msg) if msg.is_text() => {
-                    let text = match msg.to_text() {
-                        Ok(text) => text,
-                        Err(e) => {
-                            log::debug!("ignoring non-utf8 text frame: {}", e);
-                            continue;
-                        }
-                    };
-                    let reply = session.handle(text).await;
-                    if let Err(e) = ws.send(tungstenite::Message::Text(reply)).await {
-                        log::debug!("failed to send response: {}", e);
-                        break;
+    // Held for the connection's lifetime; dropping it frees the slot.
+    let _keep = _permit;
+    let ws_config = WebSocketConfig {
+        max_message_size: Some(MAX_WS_MESSAGE_BYTES),
+        max_frame_size: Some(MAX_WS_MESSAGE_BYTES),
+        ..Default::default()
+    };
+    let mut ws = match tokio_tungstenite::accept_async_with_config(stream, Some(ws_config)).await {
+        Ok(ws) => ws,
+        Err(e) => {
+            log::debug!("websocket upgrade failed: {}", e);
+            return;
+        }
+    };
+    let mut session = sessions.create();
+    while let Some(msg) = ws.next().await {
+        match msg {
+            Ok(msg) if msg.is_text() => {
+                let text = match msg.to_text() {
+                    Ok(text) => text,
+                    Err(e) => {
+                        log::debug!("ignoring non-utf8 text frame: {}", e);
+                        continue;
                     }
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("websocket receive error: {}", e);
+                };
+                let reply = session.handle(text).await;
+                if let Err(e) = ws.send(tungstenite::Message::Text(reply)).await {
+                    log::debug!("failed to send response: {}", e);
                     break;
                 }
             }
+            Ok(_) => {}
+            Err(e) => {
+                log::debug!("websocket receive error: {}", e);
+                break;
+            }
         }
-    });
+    }
 }
 
 #[cfg(test)]

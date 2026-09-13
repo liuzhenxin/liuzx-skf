@@ -76,6 +76,11 @@ const SENSITIVE_WORDS: &[&str] = &[
     "decrypted",
     "cert_bytes",
     "payload",
+    // Phase 7 TLS material: paths are as sensitive as contents, because they
+    // reveal the install layout (TLS-04).
+    "key_file",
+    "cert_file",
+    "tls_key",
 ];
 
 #[test]

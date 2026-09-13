@@ -14,6 +14,23 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+/// TLS material and the client-authentication mode (Phase 7).
+///
+/// A **named** field on `SkfConfig` for the same reason as `allow_remote`: an
+/// unnamed top-level key would be captured by the flattened `libs` map.
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Default)]
+pub struct TlsConfig {
+    /// PEM certificate chain path.
+    #[serde(default)]
+    pub cert_file: Option<String>,
+    /// PEM private-key path (a secret; never logged or diagnosed).
+    #[serde(default)]
+    pub key_file: Option<String>,
+    /// Client-authentication mode: `none` in Phase 7; `mtls`/`token` in Phase 8.
+    #[serde(default)]
+    pub client_auth: Option<String>,
+}
+
 /// Raw provider configuration as read from YAML.
 ///
 /// `vendor` maps `VID:PID` strings to provider aliases. The flattened `libs`
@@ -29,6 +46,9 @@ pub struct SkfConfig {
     /// by the flattened `libs` map and could break parsing (Phase 2 D-07).
     #[serde(default)]
     pub allow_remote: Option<bool>,
+    /// Optional TLS configuration. Absent means the listener is plaintext.
+    #[serde(default)]
+    pub tls: Option<TlsConfig>,
     #[serde(flatten)]
     pub libs: HashMap<String, HashMap<String, String>>,
 }
@@ -36,6 +56,13 @@ pub struct SkfConfig {
 impl SkfConfig {
     /// Environment variable that opts in at runtime.
     pub const REMOTE_ENV: &'static str = "SKF_ALLOW_REMOTE";
+
+    /// Environment override for the TLS certificate path.
+    pub const TLS_CERT_ENV: &'static str = "SKF_TLS_CERT";
+    /// Environment override for the TLS private-key path.
+    pub const TLS_KEY_ENV: &'static str = "SKF_TLS_KEY";
+    /// Environment override for the client-authentication mode.
+    pub const TLS_CLIENT_AUTH_ENV: &'static str = "SKF_TLS_CLIENT_AUTH";
 
     /// Whether non-loopback binding is permitted.
     ///
@@ -54,6 +81,55 @@ impl SkfConfig {
             Some(v) if v == "1" || v == "true"
         )
     }
+
+    /// The configured TLS certificate path, with the environment override first.
+    pub fn tls_cert_path(&self) -> Option<String> {
+        env_non_empty(Self::TLS_CERT_ENV)
+            .or_else(|| self.tls.as_ref().and_then(|t| t.cert_file.clone()))
+            .filter(|value| !value.trim().is_empty())
+    }
+
+    /// The configured TLS private-key path, with the environment override first.
+    pub fn tls_key_path(&self) -> Option<String> {
+        env_non_empty(Self::TLS_KEY_ENV)
+            .or_else(|| self.tls.as_ref().and_then(|t| t.key_file.clone()))
+            .filter(|value| !value.trim().is_empty())
+    }
+
+    /// The client-authentication mode, lower-cased; defaults to `none`.
+    pub fn tls_client_auth(&self) -> String {
+        env_non_empty(Self::TLS_CLIENT_AUTH_ENV)
+            .or_else(|| self.tls.as_ref().and_then(|t| t.client_auth.clone()))
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    /// Validate the TLS block before any listener is created.
+    ///
+    /// Phase 7 accepts only `client_auth: none`; `mtls`/`token` are rejected
+    /// rather than silently downgraded to an unauthenticated listener (D-05).
+    pub fn validate_tls(&self) -> Result<(), String> {
+        match (self.tls_cert_path(), self.tls_key_path()) {
+            (None, None) | (Some(_), Some(_)) => {}
+            _ => return Err("tls: both cert_file and key_file are required".to_string()),
+        }
+        let mode = self.tls_client_auth();
+        if mode != "none" {
+            return Err(format!(
+                "tls: client_auth '{}' is not supported yet (use 'none'; mtls/token arrive in phase 8)",
+                mode
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Read an environment variable, treating empty/whitespace as unset.
+fn env_non_empty(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 /// Read and parse a configuration file.
@@ -322,6 +398,7 @@ mod tests {
             default: "GM3000".to_string(),
             vendor: HashMap::new(),
             allow_remote: None,
+            tls: None,
             libs,
         };
 
@@ -346,10 +423,10 @@ mod tests {
         );
     }
 
-    /// Environment state is process-global, so the remote tests share one lock.
+    /// Environment state is process-global, so the env tests share one lock with
+    /// any other unit test that reads env-driven configuration.
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        crate::test_env::lock()
     }
 
     #[test]
@@ -427,6 +504,7 @@ mod tests {
             default: "ABSENT".to_string(),
             vendor,
             allow_remote: None,
+            tls: None,
             libs,
         };
 
@@ -437,5 +515,85 @@ mod tests {
         assert!(problems
             .iter()
             .any(|p| p.contains("unknown provider 'MISSING'")));
+    }
+
+    #[test]
+    fn tls_block_parses_and_does_not_break_providers() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let yaml = "default: GM3000\nvendor: {}\ntls:\n  cert_file: config/server.crt\n  key_file: config/server.key\n  client_auth: none\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        assert!(
+            config.libs.contains_key("GM3000"),
+            "tls must not swallow libs"
+        );
+        assert_eq!(config.tls_cert_path().as_deref(), Some("config/server.crt"));
+        assert_eq!(config.tls_key_path().as_deref(), Some("config/server.key"));
+        assert_eq!(config.tls_client_auth(), "none");
+        assert!(config.validate_tls().is_ok());
+    }
+
+    #[test]
+    fn client_auth_other_than_none_is_rejected() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let yaml = "default: GM3000\nvendor: {}\ntls:\n  cert_file: c.crt\n  key_file: c.key\n  client_auth: mtls\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        let error = config
+            .validate_tls()
+            .expect_err("mtls is not implemented yet");
+        assert!(error.contains("not supported yet"), "got: {error}");
+    }
+
+    #[test]
+    fn half_configured_tls_is_rejected() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let yaml = "default: GM3000\nvendor: {}\ntls:\n  cert_file: c.crt\nGM3000:\n  macos: native/x.dylib\n";
+        let config: SkfConfig = serde_yaml::from_str(yaml).expect("parse");
+        let error = config.validate_tls().expect_err("half config must fail");
+        assert!(
+            error.contains("both cert_file and key_file"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn env_overrides_yaml_and_absent_tls_is_none() {
+        let _guard = env_lock();
+        clear_tls_env();
+        let config: SkfConfig =
+            serde_yaml::from_str("default: GM3000\nvendor: {}\nGM3000:\n  macos: native/x.dylib\n")
+                .expect("parse");
+        assert!(config.tls_cert_path().is_none());
+        assert!(config.tls_key_path().is_none());
+        assert_eq!(config.tls_client_auth(), "none");
+
+        std::env::set_var(SkfConfig::TLS_CERT_ENV, "/tmp/env.crt");
+        std::env::set_var(SkfConfig::TLS_KEY_ENV, "/tmp/env.key");
+        std::env::set_var(SkfConfig::TLS_CLIENT_AUTH_ENV, "NONE");
+        assert_eq!(config.tls_cert_path().as_deref(), Some("/tmp/env.crt"));
+        assert_eq!(config.tls_key_path().as_deref(), Some("/tmp/env.key"));
+        assert_eq!(config.tls_client_auth(), "none");
+        assert!(config.validate_tls().is_ok());
+
+        for key in [
+            SkfConfig::TLS_CERT_ENV,
+            SkfConfig::TLS_KEY_ENV,
+            SkfConfig::TLS_CLIENT_AUTH_ENV,
+        ] {
+            std::env::remove_var(key);
+        }
+    }
+
+    /// Clear the Phase 7 TLS environment overrides.
+    fn clear_tls_env() {
+        for key in [
+            SkfConfig::TLS_CERT_ENV,
+            SkfConfig::TLS_KEY_ENV,
+            SkfConfig::TLS_CLIENT_AUTH_ENV,
+        ] {
+            std::env::remove_var(key);
+        }
     }
 }
