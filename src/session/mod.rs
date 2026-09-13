@@ -149,14 +149,39 @@ impl SessionState {
 
     /// Record a successful PIN verification.
     ///
-    /// Only a deadline is stored — never the PIN itself (SESS-05).
+    /// Only a deadline is stored — never the PIN itself (SESS-05). The decision
+    /// is audited as `authorization.granted` (AUD-01).
     pub fn grant(&mut self, key: auth::AuthKey) {
+        let event = crate::audit::AuditEvent::granted(&key.provider, &key.device, &key.application);
         self.auth.grant(key);
+        crate::audit::emit(&event);
     }
 
     /// Confirm an authorization for one application, returning why it failed.
+    ///
+    /// A refusal is audited (denied or expired); a success is not logged to avoid
+    /// flooding the audit trail on every operation (AUD-01).
     pub fn authorize(&mut self, key: &auth::AuthKey) -> Result<(), auth::AuthRejection> {
-        self.auth.check(key)
+        match self.auth.check(key) {
+            Ok(()) => Ok(()),
+            Err(auth::AuthRejection::Expired) => {
+                crate::audit::emit(&crate::audit::AuditEvent::expired(
+                    &key.provider,
+                    &key.device,
+                    &key.application,
+                ));
+                Err(auth::AuthRejection::Expired)
+            }
+            Err(rejection) => {
+                crate::audit::emit(&crate::audit::AuditEvent::denied(
+                    &key.provider,
+                    &key.device,
+                    &key.application,
+                    crate::audit::reason_for(rejection),
+                ));
+                Err(rejection)
+            }
+        }
     }
 
     /// Clear authorization for one device after an operation found it missing.
@@ -167,9 +192,16 @@ impl SessionState {
     /// shared-state defect this phase exists to remove.
     ///
     /// Invalidation is therefore **detected on next use**, not instantaneous. That
-    /// is the trade-off chosen over a background device-event broadcast.
+    /// is the trade-off chosen over a background device-event broadcast. When it
+    /// clears at least one grant it is audited as `device.unavailable` (AUD-01).
     pub fn invalidate_device(&mut self, provider: &str, device: &str) -> usize {
-        self.auth.invalidate_device(provider, device)
+        let removed = self.auth.invalidate_device(provider, device);
+        if removed > 0 {
+            crate::audit::emit(&crate::audit::AuditEvent::device_unavailable(
+                provider, device, removed,
+            ));
+        }
+        removed
     }
 }
 

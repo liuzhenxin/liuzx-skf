@@ -99,16 +99,11 @@ pub fn authorized(
 }
 
 /// Clear this session's grants for a device an operation just found missing.
+///
+/// The audit event is emitted by [`SessionState::invalidate_device`] itself, so
+/// there is nothing to log here.
 pub fn note_device_unavailable(state: &mut SessionState, provider: &str, device: &str) {
-    let removed = state.invalidate_device(provider, device);
-    if removed > 0 {
-        log::info!(
-            "device {}/{} is unavailable; cleared {} authorization grant(s)",
-            provider,
-            device,
-            removed
-        );
-    }
+    state.invalidate_device(provider, device);
 }
 
 /// The native return code behind a provider failure, when there is one.

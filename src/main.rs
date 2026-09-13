@@ -429,15 +429,8 @@ fn provider_load_failed(
 /// Detection is therefore on next use rather than instantaneous — the trade-off
 /// taken instead of a background device-event broadcast.
 fn device_unavailable(state: &mut SessionState, provider: &str, device: &str) {
-    let removed = state.invalidate_device(provider, device);
-    if removed > 0 {
-        log::info!(
-            "device {}/{} is unavailable; cleared {} authorization grant(s)",
-            provider,
-            device,
-            removed
-        );
-    }
+    // The audit event is emitted by `SessionState::invalidate_device` (AUD-01).
+    state.invalidate_device(provider, device);
 }
 
 /// Confirm this session holds a live authorization for one application.
