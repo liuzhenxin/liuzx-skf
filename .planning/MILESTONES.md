@@ -1,24 +1,48 @@
 # Milestones
 
+## v0.4.0 Secure Remote Operation (Shipped: 2026-09-13)
+
+**Phases completed:** 4 phases, 11 plans
+**Git range:** `6caebb2..296c071` (`dev`)
+
+**Key accomplishments:**
+
+- Optional server-side TLS: a named `tls:` block (`cert_file`/`key_file`) enables TLS through `rustls` with the `ring` provider explicitly pinned (min TLS 1.2, chosen so the i686 Windows cross-build stays reproducible). With no `tls:` block the listener is plaintext loopback exactly as before, and an unreadable certificate/key is a fatal configuration error (exit code 1) with no plaintext fallback.
+- Client authentication: `client_auth: mtls` installs a rustls `WebPkiClientVerifier` over a configured CA, and `token` requires `Authorization: Bearer <token>` in the WebSocket upgrade (rejected with 401 before a session exists). The token is compared in constant time and comes from `SKF_TLS_TOKEN` or a `token_file`, never inline YAML.
+- One exposure rule: a non-loopback bind now requires remote opt-in **and** TLS **and** client authentication, decided before the socket is opened (exit code 3) with a message naming all three requirements; loopback stays configuration-free.
+- Authorization audit: `authorization.granted`, `authorization.denied` (with reason), `authorization.expired`, and `device.unavailable` (with cleared count) are emitted from the single `SessionState` decision point as structured JSON. The event type can only carry provider/device/application/reason/count, so no PIN, key, payload, or token can be recorded.
+- The authenticated identity (mTLS subject CN, `token`, or anonymous) is threaded into the session for audit and logged only as a class; the private key and token never reach logs, `diagnose`, the status file, or release metadata (diagnose exposes only `tls_enabled`/`tls_cert_loaded` booleans).
+- Quality closeout: the threat model, bilingual session/limits doc, Windows service doc and release notes describe the new boundary and migration path; the Linux CI fast job now runs the hermetic `tls`/`client_auth`/`audit`/`log_redaction`/`protocol_version`/`restricted_methods` suites; Nyquist sign-off is closed for phases 3-6 (`10-NYQUIST-AUDIT.md`).
+
+**Compatibility:** default behaviour is unchanged — plaintext loopback with v0.2.0 clients working unmodified; the 37 frozen fixtures still replay green (verified with the GM3000 token attached to the dev host).
+
+**Known deferred items at close:** 2 human pre-release UAT flows (real operator CA + Windows service TLS lifecycle) plus documented minor tech debt; see `.planning/milestones/v0.4.0-MILESTONE-AUDIT.md`.
+
+---
+
 ## v0.3.0 Production Hardening (Shipped: 2026-09-12)
 
 **Phases completed:** 6 phases, 20 plans, 29 tasks
 
 **Post-ship verification (2026-09-12):**
+
 - Windows service lifecycle UAT passed on a Windows 10 x64 VM against the
   released v0.3.0 ZIP: install → `Running (stage=serve)`, `StartPending
   (stage=provider)` observed, invalid config → `ExitCode=1066` +
   `failed/provider/code=2`, install-dir ACL enforced, upgrade over running,
   uninstall + reinstall. (`packaging/windows/uat-v030.ps1`, `Total: 4 Failed: 0`)
+
 - Released ZIP SHA-256 independently verified on the VM.
 - GitHub Release v0.3.0 published with the ZIP and checksum; `dev`/`main` CI green;
   branch protection on `main` requires the five CI checks.
+
 - Real GM3000 hardware UAT (checklist B) on the Windows 10 x64 VM: B1 session
   isolation, B2 device-removal invalidation, B3 no-PIN-retained (structural),
   B4 concurrent signing, B5 slow-op isolation all PASS. B2 exposed a real gap on
   v0.3.0 (a `ConnectDev` failure did not clear the grant); fixed in **v0.3.1** and
   re-verified on hardware (`SignData after re-insert -> -10`). B6/B7 are covered by
   automated tests; B8 awaits vendor documentation.
+
 - v0.3.1 released (ZIP + SHA-256) and merged to `main` (PR #3).
 
 **Status: production-verified for the tested matrix.** Remaining advisory: B6/B7

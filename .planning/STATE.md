@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Secure Remote Operation
-status: Milestone v0.4.0 complete
-stopped_at: All v0.4.0 phases executed and verified; ready for milestone audit
-last_updated: "2026-09-13T13:55:00.000Z"
+status: Milestone v0.4.0 shipped — awaiting next milestone
+stopped_at: Milestone v0.4.0 completed, archived, and tagged
+last_updated: "2026-09-13T14:30:00.000Z"
+last_activity: 2026-09-13 — Milestone v0.4.0 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -20,16 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-12)
 
 **Core value:** 应用能够通过稳定、安全且与厂商实现解耦的统一接口访问 USB Key 的硬件密码能力。
-**Current Milestone:** v0.4.0 Secure Remote Operation — TLS, client authentication, tightened bind policy, authorization audit.
+**Shipped:** v0.3.0 / v0.3.1 (2026-09-12) and v0.4.0 (2026-09-13). No active milestone — start the next with `$gsd-new-milestone`.
 
 ## Current Position
 
-Milestone: v0.4.0 Secure Remote Operation — IN PROGRESS
-Phase: 10 (Documentation and Quality Closeout) — COMPLETE
-Next action: `$gsd-audit-milestone` then `$gsd-complete-milestone`
-Last Activity Description: Phase 10 executed — docs, CI/Nyquist, hermetic proof; v0.4.0 complete
-
-Progress: [██████████] 100%  (4/4 phases)
+Phase: Milestone v0.4.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-13 — Milestone v0.4.0 completed and archived
 
 ## Accumulated Context
 
@@ -54,23 +53,33 @@ None.
 - TLS/client-auth crate availability: the local cargo registry needed a sparse mirror; `~/.cargo/config.toml` was switched to `sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/` (backup at `~/.cargo/config.toml.bak`). CI fetches from crates.io normally.
 - Vendor DLL thread safety remains unproven; per-device concurrency stays deferred.
 - The HTTP demo can still bind non-loopback in console mode (documented boundary).
-- [RESOLVED in Phase 9] The 37-fixture contract replay was blocked while the GM3000 token was attached to the Windows VM; the token is back on this Mac and `contract_fixtures` is now 4/4 green.
-- [Phase 9] A non-loopback bind now requires opt-in + TLS + client authentication; `client_auth: none` is accepted only on loopback.
+- [v0.4.0] A non-loopback bind requires opt-in + TLS + client authentication; `client_auth: none` is accepted only on loopback.
+- [v0.4.0] The contract replay (37 fixtures) passes on this host with the GM3000 token attached; it is a local/pre-release check, not a hosted CI job.
 - `IssueCertificate` remains a Mock (real CA integration deferred).
 
 ## Deferred Items
 
-Carried into the v0.4.0 backlog (not in this milestone): per-device concurrency/throughput, multi-vendor (FishMan/3000GM) and Linux/macOS distribution, remote log shipping/metrics/health endpoint, real CA integration.
+Open artifact audit at v0.4.0 close: all clear. The items below are the
+acknowledged backlog carried forward, not milestone gaps.
+
+Carried into the next milestone: per-device concurrency/throughput, multi-vendor
+(FishMan/3000GM) and Linux/macOS distribution, remote log shipping/metrics/health
+endpoint, real CA integration.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| concurrency | per-device locking / multi-device throughput | deferred | v0.4.0 start |
-| distribution | FishMan / 3000GM / Linux / macOS packaging | deferred | v0.4.0 start |
-| observability | remote log shipping, metrics, health endpoint | deferred | v0.4.0 start |
-| ca | real certificate issuance (IssueCertificate) | deferred | v0.4.0 start |
+| concurrency | per-device locking / multi-device throughput | deferred | v0.4.0 close |
+| distribution | FishMan / 3000GM / Linux / macOS packaging | deferred | v0.4.0 close |
+| observability | remote log shipping, metrics, health endpoint | deferred | v0.4.0 close |
+| ca | real certificate issuance (IssueCertificate) | deferred | v0.4.0 close |
+| verification | real operator CA mTLS + Windows service TLS lifecycle UAT | deferred | v0.4.0 close |
 
 ## Session Continuity
 
-Last session: 2026-09-13T13:35:00.000Z
-Stopped at: Phase 9 executed and verified
-Resume file: .planning/phases/09-bind-policy-and-authorization-audit/09-VERIFICATION.md
+Last session: 2026-09-13T14:30:00.000Z
+Stopped at: Milestone v0.4.0 completed and archived
+Resume file: .planning/milestones/v0.4.0-MILESTONE-AUDIT.md
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

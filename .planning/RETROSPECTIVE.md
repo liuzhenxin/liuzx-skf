@@ -69,6 +69,64 @@
 
 ---
 
+## Milestone: v0.4.0 — Secure Remote Operation
+
+**Shipped:** 2026-09-13
+**Phases:** 4 | **Plans:** 11
+
+### What Was Built
+- Optional TLS termination with the `ring` provider pinned so the i686 Windows
+  cross-build stays reproducible; default stays plaintext loopback.
+- mTLS (`WebPkiClientVerifier`) and bearer-token authentication enforced before a
+  session exists; client identity threaded into the session.
+- A single exposure rule: non-loopback requires opt-in + TLS + client auth.
+- Structured, non-sensitive authorization audit emitted from the one decision
+  point (`SessionState`).
+- Docs, CI fast-job coverage, and the retroactive Nyquist sign-off for phases 3-6.
+
+### What Worked
+- **Attaching audit to the single chokepoint.** Every authorization decision
+  already funnelled through three `SessionState` methods, so the audit was one
+  change instead of dozens of call-site edits.
+- **Pinning the crypto provider early.** Choosing `ring` explicitly (rather than
+  the crate-feature default `aws-lc-rs`) kept the i686 cross-check green with no
+  rework.
+- **Hermetic certificates with `rcgen`.** TLS/auth/audit suites need no token or
+  middleware, so they run in the hosted Linux CI job.
+- **The frozen fixture oracle still paid off.** With the token re-attached, the
+  37-fixture replay confirmed the default path was untouched by phase 7-9.
+
+### What Was Inefficient
+- The cargo registry mirror had to be switched to a sparse index before any new
+  dependency could resolve; this blocked execution until fixed.
+- The GM3000 token moved between the macOS host and the Windows VM mid-milestone,
+  which temporarily blocked the contract replay and forced a carried blocker note.
+- The audit end-to-end proof had to be library-level rather than a subprocess
+  stderr capture, because without a token every handler fails before its
+  authorization check.
+
+### Patterns Established
+- Security controls are opt-in and default-safe: no config means the old,
+  already-verified behaviour.
+- One decision point per concern (authorization; bind exposure) so cross-cutting
+  behavior (audit, policy) has a single place to attach.
+- A secret never gets a type that could serialize into a log; the audit event enum
+  makes leaking one impossible by construction.
+
+### Key Lessons
+- Structural Nyquist sign-off drifts: a phase-3 grep check was superseded by a
+  later phase. The audit should re-run commands, not trust the original text.
+- Overlapping requirement scopes (AUTH-03 vs BIND-01) are fine if the boundary is
+  written down; phase 8 enforced "none is loopback-only" and phase 9 added the TLS
+  half.
+
+### Cost Observations
+- Four phases, eleven plans, executed inline in one session. Verification was
+  dominated by the i686 cross-check (~80 s cold); the full test suite runs in
+  seconds.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution

@@ -10,21 +10,20 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 
 应用能够通过稳定、安全且与厂商实现解耦的统一接口访问 USB Key 的硬件密码能力。
 
-## Current Milestone: v0.4.0 Secure Remote Operation
+## Milestone Status
 
-**Goal:** 让服务在非回环网络上有真实的传输安全与访问控制，移除"回环才是安全边界"这一根本限制。
+**No active milestone.** v0.3.0 Production Hardening (2026-09-12) and v0.4.0 Secure
+Remote Operation (2026-09-13) are shipped and archived in
+`.planning/milestones/`. Start the next milestone with `$gsd-new-milestone`.
 
-**Target features:**
-- TLS 终止：为 WebSocket 监听器提供 TLS（服务端证书，配置化；证书/私钥按敏感资料处理，不写入日志或发布元数据）。
-- 客户端认证：mTLS 或 bearer 令牌（配置化），未认证连接不能调用方法。
-- 绑定策略收紧：非回环地址仅在 TLS 与客户端认证**同时**启用时放行（把现有 `allow_remote` 升级为"安全才可远程"）。
-- 授权决策审计：记录非敏感的允许/拒绝事实（主体类别、provider/device、结果、原因类别），不记录 PIN/密钥/载荷。
-- 兼容性与文档：v0.2.0 本机客户端行为不变；更新威胁模型、会话/限制文档与迁移说明。
-- 顺带收尾：阶段 3–6 的 Nyquist 签核、CI fast-job 测试清单同步。
+**v0.4.0 delivered:** optional TLS termination, mTLS / bearer-token client
+authentication, a single non-loopback exposure rule (opt-in + TLS + client auth),
+and a structured non-sensitive authorization audit — with the default still
+plaintext loopback and the v0.2.0 client contract unchanged.
 
-**Prior milestone:** v0.3.0 / v0.3.1 Production Hardening shipped and verified; see `.planning/MILESTONES.md`.
-
-**Explicitly deferred to a later milestone:** per-device concurrency/throughput, multi-vendor (FishMan/3000GM) and Linux/macOS distribution, remote log shipping / metrics / health endpoint, and real CA integration for `IssueCertificate`.
+**Explicitly deferred to a later milestone:** per-device concurrency/throughput,
+multi-vendor (FishMan/3000GM) and Linux/macOS distribution, remote log shipping /
+metrics / health endpoint, and real CA integration for `IssueCertificate`.
 
 ## Requirements
 
@@ -59,10 +58,16 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - ✓ 协议接受可选 `apiVersion`，新增 `GetProtocolVersion`（文档化增补），v0.2.0 客户端无需修改；受限方法可经 `SKF_RESTRICT_LEGACY=1` 返回文档化 `-100` — Phase 6（`tests/protocol_version.rs`、`tests/restricted_methods.rs`）
 - ✓ 发布 ZIP 带 SHA-256，workflow 校验 checksum 并解包断言内容与 exe/DLL `Machine=0x014C` — Phase 6（`packaging/windows/build.ps1`、`release-windows.yml`）
 - ✓ 威胁模型、中英对照会话/限制文档、发布说明与 agent 文档已补齐 — Phase 6（`THREAT-MODEL.md`、`docs/SESSION-AND-LIMITS.md`、`RELEASE-NOTES.md`）
+- ✓ WebSocket 监听器可选启用 TLS（`tls.cert_file`/`tls.key_file`，`rustls` + 固定 `ring` provider，最低 TLS 1.2）；未配置时保持明文回环，证书/私钥加载失败为致命配置错误（退出码 1），绝不回退明文 — Phase 7（`src/server/mod.rs`、`tests/tls.rs`）
+- ✓ 客户端认证支持 `client_auth: none|mtls|token`：mTLS 用 `WebPkiClientVerifier` 校验客户端证书，token 在 WebSocket 升级前校验 `Authorization: Bearer` 并返回 401；令牌来自 `SKF_TLS_TOKEN` 或 `token_file`，常量时间比较 — Phase 8（`src/client_auth.rs`、`tests/client_auth.rs`）
+- ✓ 非回环绑定仅在 opt-in **且** TLS **且** 客户端认证三者齐备时放行，拒绝发生在 bind 之前（退出码 3）并列出缺失项；回环默认不变 — Phase 9（`src/server/mod.rs`、`tests/loopback_gate.rs`）
+- ✓ 授权决策以结构化非敏感事件记录（granted/denied 带 reason/expired/device.unavailable 带 cleared），事件类型无法携带 PIN/密钥/载荷/令牌 — Phase 9（`src/audit.rs`、`tests/audit.rs`）
+- ✓ 已认证身份（mTLS CN / token / anonymous）接入会话供审计；私钥与令牌不进入日志、`diagnose`、状态文件或发布元数据 — Phase 8（`src/server/mod.rs`、`src/main.rs`）
+- ✓ 威胁模型、会话/限制、Windows 服务与发布说明文档描述 TLS/auth/bind/审计与迁移路径；CI 快速任务纳入 hermetic 安全套件；阶段 3–6 Nyquist 签核关闭 — Phase 10（`THREAT-MODEL.md`、`docs/CI.md`、`10-NYQUIST-AUDIT.md`）
 
 ### Active
 
-- *(none — v0.3.0 scope complete; see Deferred and the roadmap backlog)*
+- *(none — v0.4.0 scope complete; see Deferred and the roadmap backlog)*
 
 ### Out of Scope
 
@@ -80,7 +85,9 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 - 一个进程级 `Arc<SkfContext>` 被所有 WebSocket 连接共享，但只保留 `config`、`provider` 与已加载库缓存；明文 PIN 与流式哈希句柄缓存已按会话迁移到 `SessionState`。
 - FFI 边界由 `src/skf/api.rs` 与 `src/skf/types.rs` 提供，依赖厂商 C ABI、原始指针和若干显式安全假设。
 - Phase 3 后，每个请求的 dispatcher 整体运行在 Tokio 阻塞池上，厂商调用与守卫析构都不占用 async worker；所有经守卫的 native 调用共享一把每 provider 全局锁（wait/cancel 豁免），非 wait 请求有 30s 超时。当前 `cargo test` 运行 133 个 Rust 测试。
-- 当前网络 API没有传输认证；服务模式默认回环地址是重要的临时安全边界（Phase 3 已将非回环绑定改为显式 opt-in）。
+- 当前网络 API 支持可选 TLS（`rustls` + 固定 `ring`）以及 `client_auth: mtls|token`；非回环绑定需 opt-in + TLS + 客户端认证三者齐备，默认仍为明文回环。
+- 授权决策（granted/denied/expired/device-unavailable）从 `SessionState` 单一决策点以结构化 JSON 记录，字段不含 PIN/密钥/载荷/令牌（`src/audit.rs`）。
+- 当前 `cargo test` 在无硬件下运行 145 个库测试，另含 TLS/client-auth/audit 等 hermetic 集成套件；附 GM3000 令牌时 37 个 v0.2.0 夹具全部回放通过。
 - Windows Release 工作流能构建并检查架构，但尚未自动验证服务安装、启动就绪、停止、升级或卸载。
 - Windows 服务现按阶段上报启动状态（`service-state.json`），并以分类非零退出码触发 `sc failure` 重启；安装器限制安装目录 ACL 并在升级/卸载时等待文件解锁。SVC 的 SCM 实机行为仍需在 Windows VM 上按 `packaging/windows/verify-service.ps1` 验证。
 - `.github/workflows/ci.yml` 已是 PR/主分支门禁：fmt、clippy(-D warnings)、硬件无关测试、x86_64 macOS 全量（含契约重放）、i686 编译检查、门禁 self-test。真正阻断合并仍需仓库分支保护设置（见 `docs/CI.md`）。
@@ -105,8 +112,11 @@ LiuZX SKF Service 是一个 Rust 编写的本地 SKF 网关，通过 WebSocket J
 | GSD 规划独立存放于 `liuzx-skf/.planning/` | 父级 PKI 工作区另有规划，独立根可避免跨仓库状态和提交污染 | ✓ Good |
 | 保持 Windows x64 OS + i686 服务进程 | GM3000 Windows DLL 为 PE32/i386，这是不可绕过的 ABI 约束 | ✓ Good |
 | 无硬件 CI 使用 Fake provider，真实设备使用独立 UAT | 托管 CI 无法可靠提供驱动和物理设备，两层验证可兼顾速度与真实性 | — Pending |
-| 默认保持本机访问，不在 v0.3.0 宣称公网服务能力 | 当前协议无 TLS、客户端认证或授权，扩大网络暴露不可接受 | — Pending |
-| 保留 v0.2.0 客户端兼容层并引入明确协议版本 | 安全重构不能静默破坏现有集成 | — Pending |
+| 默认保持本机访问，不在 v0.3.0 宣称公网服务能力 | 当时协议无 TLS、客户端认证或授权，扩大网络暴露不可接受 | ⚠️ Revisit — v0.4.0 以 TLS + 客户端认证 + opt-in 三重控制取代了纯回环边界 |
+| 远程暴露必须同时具备 opt-in、TLS 与客户端认证 | 任何单一控制都不足以在不可信网络上保护 PKI 设备 | ✓ Good |
+| TLS provider 显式固定为 `ring` | 默认 `aws-lc-rs` 会破坏 i686 Windows 交叉编译（发布目标） | ✓ Good |
+| 审计只在 `SessionState` 单一决策点发射 | 授权决策全部汇聚于此，避免逐调用点遗漏 | ✓ Good |
+| 保留 v0.2.0 客户端兼容层并引入明确协议版本 | 安全重构不能静默破坏现有集成 | ✓ Good |
 | `IssueCertificate` 保持 Mock 定位 | 生产 CA 涉及合规、密钥保护和证书策略，不属于本地 SKF 网关职责 | ✓ Good |
 
 ## Evolution
@@ -127,4 +137,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-12 after Phase 6 (Observability, Diagnostics, and Release Verification) — v0.3.0 milestone complete*
+*Last updated: 2026-09-13 after v0.4.0 (Secure Remote Operation) — milestone complete*
