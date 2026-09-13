@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Secure Remote Operation
-status: Ready to execute
-stopped_at: Phase 8 executed and verified
-last_updated: "2026-09-13T13:29:47.461Z"
+status: Phase 9 complete
+stopped_at: Phase 9 executed and verified; contract fixtures now green
+last_updated: "2026-09-13T13:35:00.000Z"
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 5
-  percent: 50
+  completed_plans: 8
+  percent: 75
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-09-12)
 ## Current Position
 
 Milestone: v0.4.0 Secure Remote Operation — IN PROGRESS
-Phase: 8 (Client Authentication) — COMPLETE
-Next action: `$gsd-plan-phase 9` (Bind Policy and Authorization Audit)
-Last Activity Description: Phase 9 planning complete — 3 plans ready
+Phase: 9 (Bind Policy and Authorization Audit) — COMPLETE
+Next action: `$gsd-plan-phase 10` (Documentation and Quality Closeout)
+Last Activity Description: Phase 9 executed — combined exposure rule + structured audit; contract fixtures green
 
-Progress: [██████░░░░] 50%  (2/4 phases)
+Progress: [████████░░] 75%  (3/4 phases)
 
 ## Accumulated Context
 
@@ -54,8 +54,8 @@ None.
 - TLS/client-auth crate availability: the local cargo registry needed a sparse mirror; `~/.cargo/config.toml` was switched to `sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/` (backup at `~/.cargo/config.toml.bak`). CI fetches from crates.io normally.
 - Vendor DLL thread safety remains unproven; per-device concurrency stays deferred.
 - The HTTP demo can still bind non-loopback in console mode (documented boundary).
-- [Phase 7/8] The 37-fixture contract replay cannot run on the Mac while the GM3000 token is attached to the Windows VM (`ConnectDev` returns 0x00000001 instead of the recorded 0x0A000023). Re-run with the token on the Mac before the v0.4.0 audit.
-- [Phase 8] `client_auth: none` is now loopback-only; phase 9 will additionally require TLS for any non-loopback bind.
+- [RESOLVED in Phase 9] The 37-fixture contract replay was blocked while the GM3000 token was attached to the Windows VM; the token is back on this Mac and `contract_fixtures` is now 4/4 green.
+- [Phase 9] A non-loopback bind now requires opt-in + TLS + client authentication; `client_auth: none` is accepted only on loopback.
 - `IssueCertificate` remains a Mock (real CA integration deferred).
 
 ## Deferred Items
@@ -71,6 +71,6 @@ Carried into the v0.4.0 backlog (not in this milestone): per-device concurrency/
 
 ## Session Continuity
 
-Last session: 2026-09-13T11:40:00.000Z
-Stopped at: Phase 8 executed and verified
-Resume file: .planning/phases/08-client-authentication/08-VERIFICATION.md
+Last session: 2026-09-13T13:35:00.000Z
+Stopped at: Phase 9 executed and verified
+Resume file: .planning/phases/09-bind-policy-and-authorization-audit/09-VERIFICATION.md

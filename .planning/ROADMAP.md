@@ -26,7 +26,7 @@ device-removal grant clearing.
 
 - [x] Phase 7: TLS Termination (TLS-01..04, COMPAT-01) — 2/2 plans
 - [x] Phase 8: Client Authentication (AUTH-01..04) — 3/3 plans
-- [ ] Phase 9: Bind Policy and Authorization Audit (BIND-01..03, AUD-01..02)
+- [x] Phase 9: Bind Policy and Authorization Audit (BIND-01..03, AUD-01..02) — 3/3 plans
 - [ ] Phase 10: Documentation and Quality Closeout (COMPAT-02, QA-01, QA-02)
 
 ## Phase Details (v0.4.0)
@@ -74,9 +74,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 09-01: Structured authorization audit
-- [ ] 09-02: Combined exposure rule for non-loopback binding
-- [ ] 09-03: Audit end-to-end proof and regression
+- [x] 09-01: Structured authorization audit
+- [x] 09-02: Combined exposure rule for non-loopback binding
+- [x] 09-03: Audit end-to-end proof and regression
 
 ### Phase 10: Documentation and Quality Closeout
 **Goal**: 记录新的信任边界与迁移路径，并补齐上一里程碑遗留的质量项。
@@ -95,5 +95,5 @@ Plans:
 | 1-6 | v0.3.0 | 20/20 | Complete | 2026-09-12 |
 | 7. TLS Termination | v0.4.0 | 2/2 | Complete | 2026-09-12 |
 | 8. Client Authentication | v0.4.0 | 3/3 | Complete | 2026-09-12 |
-| 9. Bind Policy and Audit | v0.4.0 | 0/0 | Not started | - |
+| 9. Bind Policy and Audit | v0.4.0 | 3/3 | Complete | 2026-09-12 |
 | 10. Docs and Quality | v0.4.0 | 0/0 | Not started | - |
