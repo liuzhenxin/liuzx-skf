@@ -2,8 +2,8 @@
 phase: 10
 slug: documentation-and-quality-closeout
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-09-12
 ---
 
@@ -50,11 +50,11 @@ created: 2026-09-12
 
 ## Validation Sign-Off
 
-- [ ] 每个任务具备自动化命令
-- [ ] 采样连续性：不存在连续 3 个任务缺少自动化验证
-- [ ] Wave 0 覆盖全部缺失引用
-- [ ] 无 watch-mode 标志
-- [ ] 反馈延迟 < 30 s
-- [ ] `nyquist_compliant: true`
+- [x] 每个任务具备自动化命令
+- [x] 采样连续性：不存在连续 3 个任务缺少自动化验证
+- [x] Wave 0 覆盖全部缺失引用
+- [x] 无 watch-mode 标志
+- [x] 反馈延迟 < 30 s
+- [x] `nyquist_compliant: true`
 
-**Approval:** pending
+**Approval:** approved 2026-09-12 — all tasks have automated commands and pass in the current tree
