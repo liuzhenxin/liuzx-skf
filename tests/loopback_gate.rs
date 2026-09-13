@@ -10,6 +10,12 @@ use skf_service::config::SkfConfig;
 use skf_service::provider::SkfProvider;
 use skf_service::server::{self, ProviderFactory, RunMode, ServerOptions, UnavailableProvider};
 
+/// Extra YAML that opts into remote binding **and** supplies client auth.
+///
+/// A non-loopback bind is refused unless client authentication is configured
+/// (AUTH-03), so the positive cases must carry a token here.
+const REMOTE_WITH_TOKEN: &str = "allow_remote: true\ntls:\n  client_auth: token\n";
+
 /// Factory that never loads a library; the tests only care about the address gate.
 struct TestFactory;
 
@@ -99,10 +105,12 @@ async fn loopback_is_allowed_without_opt_in() {
 async fn non_loopback_is_allowed_with_env_opt_in() {
     let _guard = env_lock().lock().await;
     std::env::set_var(SkfConfig::REMOTE_ENV, "1");
-    let opts = options(write_config(""), "0.0.0.0:0");
+    std::env::set_var(SkfConfig::TLS_TOKEN_ENV, "test-token");
+    let opts = options(write_config("tls:\n  client_auth: token\n"), "0.0.0.0:0");
 
     let result = server::bind(&opts, &TestFactory).await;
     std::env::remove_var(SkfConfig::REMOTE_ENV);
+    std::env::remove_var(SkfConfig::TLS_TOKEN_ENV);
 
     let (_bound, _listener, _prepared) = result.expect("opt-in must allow the bind");
 }
@@ -111,8 +119,39 @@ async fn non_loopback_is_allowed_with_env_opt_in() {
 async fn non_loopback_is_allowed_with_yaml_opt_in() {
     let _guard = env_lock().lock().await;
     std::env::remove_var(SkfConfig::REMOTE_ENV);
-    let opts = options(write_config("allow_remote: true\n"), "0.0.0.0:0");
+    std::env::set_var(SkfConfig::TLS_TOKEN_ENV, "test-token");
+    let opts = options(write_config(REMOTE_WITH_TOKEN), "0.0.0.0:0");
 
     let result = server::bind(&opts, &TestFactory).await;
+    std::env::remove_var(SkfConfig::TLS_TOKEN_ENV);
     let (_bound, _listener, _prepared) = result.expect("yaml opt-in must allow the bind");
+}
+
+#[tokio::test]
+async fn non_loopback_without_client_auth_is_refused() {
+    let _guard = env_lock().lock().await;
+    std::env::remove_var(SkfConfig::REMOTE_ENV);
+    std::env::remove_var(SkfConfig::TLS_TOKEN_ENV);
+    // Opted in, but no client authentication: AUTH-03 must refuse it.
+    let opts = options(write_config("allow_remote: true\n"), "0.0.0.0:0");
+
+    let error = match server::bind(&opts, &TestFactory).await {
+        Ok(_) => panic!("non-loopback without client auth must be refused"),
+        Err(e) => e,
+    };
+    let text = error.to_string();
+    assert!(text.contains("client authentication"), "message: {}", text);
+    assert!(text.contains("tls.client_auth"), "message: {}", text);
+}
+
+#[tokio::test]
+async fn loopback_without_client_auth_still_binds() {
+    let _guard = env_lock().lock().await;
+    std::env::remove_var(SkfConfig::REMOTE_ENV);
+    std::env::remove_var(SkfConfig::TLS_TOKEN_ENV);
+    let opts = options(write_config(""), "127.0.0.1:0");
+    let (bound, _listener, _prepared) = server::bind(&opts, &TestFactory)
+        .await
+        .expect("loopback must bind without client auth");
+    assert!(bound.ws_addr.ip().is_loopback());
 }

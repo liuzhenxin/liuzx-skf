@@ -81,6 +81,11 @@ const SENSITIVE_WORDS: &[&str] = &[
     "key_file",
     "cert_file",
     "tls_key",
+    // Phase 8 client authentication: the bearer token value and the client
+    // certificate are secrets (AUTH-04).
+    "token",
+    "bearer",
+    "client_cert",
 ];
 
 #[test]
