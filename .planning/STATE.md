@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Secure Remote Operation
-status: Ready to execute
-stopped_at: Phase 7 executed and verified
-last_updated: "2026-09-13T12:25:01.259Z"
+status: Phase 8 complete
+stopped_at: Phase 8 executed and verified
+last_updated: "2026-09-13T12:30:00.000Z"
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 2
-  percent: 25
+  completed_plans: 5
+  percent: 50
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-09-12)
 ## Current Position
 
 Milestone: v0.4.0 Secure Remote Operation — IN PROGRESS
-Phase: 7 (TLS Termination) — COMPLETE
-Next action: `$gsd-plan-phase 8` (Client Authentication); optional `$gsd-verify-work` for phase 7
-Last Activity Description: Phase 8 planning complete — 3 plans ready
+Phase: 8 (Client Authentication) — COMPLETE
+Next action: `$gsd-plan-phase 9` (Bind Policy and Authorization Audit)
+Last Activity Description: Phase 8 executed — mTLS + bearer token, bind gate, hermetic tests
 
-Progress: [███░░░░░░░] 25%  (1/4 phases)
+Progress: [██████░░░░] 50%  (2/4 phases)
 
 ## Accumulated Context
 
