@@ -475,22 +475,19 @@ where
 
     on_stage(StartupStage::Bind);
     // Refuse a non-loopback WebSocket bind before the socket is opened unless the
-    // operator explicitly opted in (TRANS-06). The HTTP demo keeps its defaults.
+    // full exposure rule is satisfied: remote opt-in **and** TLS **and** client
+    // authentication (BIND-01). The HTTP demo keeps its defaults.
     let ws_socket =
         resolve_bind_addr(&opts.ws_addr).map_err(|e| StartupError::Bind(e.to_string()))?;
-    if !ws_socket.ip().is_loopback() && !config.allows_remote() {
-        return Err(StartupError::Bind(format!(
-            "refusing to bind WebSocket listener to non-loopback address {} without explicit opt-in; set allow_remote: true in the config or SKF_ALLOW_REMOTE=1",
-            ws_socket
-        )));
-    }
-    // A non-loopback listener must authenticate its clients: `none` is only
-    // acceptable on loopback (AUTH-03). Phase 9 additionally requires TLS.
-    if !ws_socket.ip().is_loopback() && client_auth.requires_loopback() {
-        return Err(StartupError::Bind(format!(
-            "refusing to bind WebSocket listener to non-loopback address {} without client authentication; set tls.client_auth to mtls or token",
-            ws_socket
-        )));
+    if !ws_socket.ip().is_loopback() {
+        let tls_enabled = tls.is_some();
+        let auth_enabled = !client_auth.requires_loopback();
+        if !(config.allows_remote() && tls_enabled && auth_enabled) {
+            return Err(StartupError::Bind(format!(
+                "refusing to bind WebSocket listener to non-loopback address {}; remote binding requires all of: allow_remote: true (or SKF_ALLOW_REMOTE=1), TLS (tls.cert_file and tls.key_file), and client authentication (tls.client_auth: mtls or token)",
+                ws_socket
+            )));
+        }
     }
 
     let listener = TcpListener::bind(ws_socket).await.map_err(|e| {
@@ -1139,6 +1136,87 @@ mod tests {
         assert_eq!(
             subject_cn_from_der(cert.der()).as_deref(),
             Some("test-client")
+        );
+    }
+
+    // ---- Phase 9: combined exposure rule (BIND-01) ----
+
+    /// Run a `bind_with_progress` attempt to completion on a throwaway runtime.
+    fn try_bind(config_path: String, ws_addr: &str) -> Result<(), StartupError> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let opts = options(config_path, ws_addr);
+        runtime.block_on(async move {
+            bind_with_progress(&opts, &TestFactory, |_| {})
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn remote_body(dir: &std::path::Path, with_tls: bool) -> String {
+        let os = std::env::consts::OS;
+        let tls = if with_tls {
+            let (cert, key) = write_server_material(dir);
+            format!(
+                "tls:\n  cert_file: {}\n  key_file: {}\n  client_auth: token\n",
+                cert, key
+            )
+        } else {
+            "tls:\n  client_auth: token\n".to_string()
+        };
+        format!(
+            "default: GM3000\nvendor: {{}}\nallow_remote: true\n{}GM3000:\n  {}: native/x-lib\n",
+            tls, os
+        )
+    }
+
+    #[test]
+    fn remote_bind_without_tls_is_a_bind_error() {
+        let _guard = crate::test_env::lock();
+        clear_auth_env();
+        std::env::set_var(SkfConfig::TLS_TOKEN_ENV, "test-token");
+        let dir = auth_dir("remote-no-tls");
+        let body = remote_body(&dir, false);
+        let error = match try_bind(write_config("remote-no-tls", &body), "0.0.0.0:0") {
+            Err(error) => error,
+            Ok(()) => panic!("remote bind without TLS must be refused"),
+        };
+        clear_auth_env();
+        assert!(matches!(error, StartupError::Bind(_)), "{:?}", error);
+        assert!(error.to_string().contains("TLS"), "{}", error);
+        assert_eq!(error.exit_code(), crate::service_state::EXIT_BIND);
+    }
+
+    #[test]
+    fn remote_bind_with_tls_and_auth_is_allowed() {
+        let _guard = crate::test_env::lock();
+        clear_auth_env();
+        std::env::set_var(SkfConfig::TLS_TOKEN_ENV, "test-token");
+        let dir = auth_dir("remote-with-tls");
+        let body = remote_body(&dir, true);
+        let result = try_bind(write_config("remote-with-tls", &body), "0.0.0.0:0");
+        clear_auth_env();
+        assert!(
+            result.is_ok(),
+            "opt-in + TLS + auth must bind: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn loopback_bind_needs_no_opt_in_tls_or_auth() {
+        let _guard = crate::test_env::lock();
+        clear_auth_env();
+        let result = try_bind(
+            write_config("loopback-default", &config_for_this_os()),
+            "127.0.0.1:0",
+        );
+        assert!(
+            result.is_ok(),
+            "loopback must bind by default: {:?}",
+            result.err()
         );
     }
 }
