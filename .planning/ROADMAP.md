@@ -55,7 +55,12 @@ Plans:
   2. With `client_auth: token`, a missing or incorrect bearer token is refused; the correct token works.
   3. `client_auth: none` is accepted only on a loopback bind.
   4. The authenticated identity (mTLS CN or `token`) is available for audit, and neither the token nor the client certificate is logged.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 08-01: Client-auth configuration, modes, and identity types
+- [ ] 08-02: Server-side mTLS and bearer-token enforcement
+- [ ] 08-03: Bind coupling and hermetic client-auth tests
 
 ### Phase 9: Bind Policy and Authorization Audit
 **Goal**: 非回环暴露只有在真正的传输安全与访问控制齐备时才被允许，并留下非敏感的授权决策审计。
