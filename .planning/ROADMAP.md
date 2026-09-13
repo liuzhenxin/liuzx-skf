@@ -71,7 +71,12 @@ Plans:
   2. The refusal happens before binding, names both requirements, and exits with the bind startup code.
   3. Loopback defaults are unchanged and `loopback_gate` tests reflect the new rule.
   4. Authorization decisions (grant/deny/expiry/device-unavailable) are logged as structured events with no PIN, key, payload, or token, and the redaction scan passes.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 09-01: Structured authorization audit
+- [ ] 09-02: Combined exposure rule for non-loopback binding
+- [ ] 09-03: Audit end-to-end proof and regression
 
 ### Phase 10: Documentation and Quality Closeout
 **Goal**: 记录新的信任边界与迁移路径，并补齐上一里程碑遗留的质量项。
