@@ -27,7 +27,7 @@ device-removal grant clearing.
 - [x] Phase 7: TLS Termination (TLS-01..04, COMPAT-01) — 2/2 plans
 - [x] Phase 8: Client Authentication (AUTH-01..04) — 3/3 plans
 - [x] Phase 9: Bind Policy and Authorization Audit (BIND-01..03, AUD-01..02) — 3/3 plans
-- [ ] Phase 10: Documentation and Quality Closeout (COMPAT-02, QA-01, QA-02)
+- [x] Phase 10: Documentation and Quality Closeout (COMPAT-02, QA-01, QA-02) — 3/3 plans
 
 ## Phase Details (v0.4.0)
 
@@ -89,9 +89,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 10-01: Document TLS, client authentication, and the bind policy
-- [ ] 10-02: CI fast-job coverage and Nyquist sign-off
-- [ ] 10-03: Hermetic proof and milestone-level regression
+- [x] 10-01: Document TLS, client authentication, and the bind policy
+- [x] 10-02: CI fast-job coverage and Nyquist sign-off
+- [x] 10-03: Hermetic proof and milestone-level regression
 
 ## Progress
 
@@ -101,4 +101,4 @@ Plans:
 | 7. TLS Termination | v0.4.0 | 2/2 | Complete | 2026-09-12 |
 | 8. Client Authentication | v0.4.0 | 3/3 | Complete | 2026-09-12 |
 | 9. Bind Policy and Audit | v0.4.0 | 3/3 | Complete | 2026-09-12 |
-| 10. Docs and Quality | v0.4.0 | 0/0 | Not started | - |
+| 10. Docs and Quality | v0.4.0 | 3/3 | Complete | 2026-09-12 |
