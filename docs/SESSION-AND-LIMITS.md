@@ -53,7 +53,7 @@
 ### 协议版本
 
 请求可带可选 `apiVersion`；未发送即视为版本 1（v0.2.0 客户端）。`GetProtocolVersion`
-返回 `{"min":1,"current":1,"service":"0.3.0"}`。请求高于当前版本返回 `-1` 与文档化消息。
+返回 `{"min":1,"current":1,"service":"0.4.0"}`。请求高于当前版本返回 `-1` 与文档化消息。
 
 ### 从 v0.3.x 迁移
 
@@ -141,7 +141,7 @@ restrict them should update callers to handle `-100` first.
 
 A request may carry an optional `apiVersion`; omitting it means version 1 (a
 v0.2.0 client). `GetProtocolVersion` returns
-`{"min":1,"current":1,"service":"0.3.0"}`. Requesting a version above the current
+`{"min":1,"current":1,"service":"0.4.0"}`. Requesting a version above the current
 one returns `-1` with a documented message.
 
 ### Migrating from v0.3.x
