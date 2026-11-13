@@ -175,7 +175,7 @@ node tests/test_usb_event.js
 
 ### 代码风格
 - 遵循 Rust 官方代码风格指南（rustfmt）
-- 使用 `cargo fmt` 格式化代码
+- 使用 `rustfmt` 仅格式化本次改动的 Rust 文件。需要单独格式化含子模块声明的文件时，通过编辑器格式化该文件，或让 `rustfmt --edition 2021 --emit stdout` 从标准输入读取内容并检查输出。使用 `cargo fmt --check` 校验全仓格式。
 - 使用 `cargo clippy` 进行代码检查
 
 ### 测试实践
