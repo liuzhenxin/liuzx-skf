@@ -120,6 +120,7 @@ pub fn der_context_0(content: &[u8]) -> Vec<u8> {
 
 // Well-known OIDs
 pub const OID_CN: &[u8] = &[0x55, 0x04, 0x03]; // 2.5.4.3
+pub const OID_SERIAL_NUMBER: &[u8] = &[0x55, 0x04, 0x05]; // 2.5.4.5
 pub const OID_O: &[u8] = &[0x55, 0x04, 0x0A]; // 2.5.4.10
 pub const OID_OU: &[u8] = &[0x55, 0x04, 0x0B]; // 2.5.4.11
 pub const OID_C: &[u8] = &[0x55, 0x04, 0x06]; // 2.5.4.6
@@ -141,12 +142,13 @@ pub const OID_SHA256_WITH_RSA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x0
 /// Parse "CN=Test,O=MyOrg,C=CN" into DER-encoded Name (SEQUENCE of SET of SEQUENCE {OID, value})
 pub fn build_subject_dn(subject: &str) -> Vec<u8> {
     let mut rdns: Vec<Vec<u8>> = Vec::new();
-    for part in subject.split(',') {
+    for part in split_subject_rdns(subject) {
         let part = part.trim();
         if let Some((key, val)) = part.split_once('=') {
             let key = key.trim().to_uppercase();
             let oid = match key.as_str() {
                 "CN" => OID_CN,
+                "SERIALNUMBER" | "SN" | "2.5.4.5" => OID_SERIAL_NUMBER,
                 "O" => OID_O,
                 "OU" => OID_OU,
                 "C" => OID_C,
@@ -156,8 +158,7 @@ pub fn build_subject_dn(subject: &str) -> Vec<u8> {
                 _ => continue,
             };
             let val = val.trim();
-            // C (country) uses PrintableString, others UTF8String
-            let value_der = if key == "C" {
+            let value_der = if oid == OID_C || oid == OID_SERIAL_NUMBER {
                 der_printable_string(val)
             } else {
                 der_utf8_string(val)
@@ -169,6 +170,28 @@ pub fn build_subject_dn(subject: &str) -> Vec<u8> {
     }
     let refs: Vec<&[u8]> = rdns.iter().map(|r| r.as_slice()).collect();
     der_sequence(&refs)
+}
+
+fn split_subject_rdns(subject: &str) -> Vec<String> {
+    let mut rdns = Vec::new();
+    let mut value = String::new();
+    let mut chars = subject.chars();
+    while let Some(character) = chars.next() {
+        match character {
+            ',' => rdns.push(std::mem::take(&mut value)),
+            '\\' => match chars.next() {
+                Some(c @ (',' | '+' | '"' | '<' | '>' | ';' | '=' | '\\' | '#')) => value.push(c),
+                Some(c) => {
+                    value.push('\\');
+                    value.push(c);
+                }
+                None => value.push('\\'),
+            },
+            c => value.push(c),
+        }
+    }
+    rdns.push(value);
+    rdns
 }
 
 /// Build SubjectPublicKeyInfo for SM2 key
@@ -298,6 +321,27 @@ mod tests {
         // OIDs for CN (2.5.4.3) and C (2.5.4.6) are present verbatim.
         assert!(der.windows(3).any(|w| w == OID_CN));
         assert!(der.windows(3).any(|w| w == OID_C));
+    }
+
+    #[test]
+    fn build_subject_dn_preserves_template_serial_number_and_escaped_comma() {
+        use x509_parser::prelude::{FromDer, X509Name};
+
+        let der = build_subject_dn(r"CN=example.com,serialNumber=Asset\, 012,O=Example");
+        let (remaining, subject) = X509Name::from_der(&der).unwrap();
+        assert!(remaining.is_empty());
+        let attributes: Vec<_> = subject
+            .iter_attributes()
+            .map(|attr| (attr.attr_type().to_id_string(), attr.as_str().unwrap()))
+            .collect();
+        assert_eq!(
+            attributes,
+            [
+                ("2.5.4.3".to_string(), "example.com"),
+                ("2.5.4.5".to_string(), "Asset, 012"),
+                ("2.5.4.10".to_string(), "Example"),
+            ]
+        );
     }
 
     #[test]
